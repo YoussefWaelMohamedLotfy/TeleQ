@@ -1,0 +1,13 @@
+@inject NavigationManager Navigation
+
+<div class="alert alert-warning">
+    Redirecting to the sign-in page...
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        var relativePath = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(relativePath)}", forceLoad: true);
+    }
+}

@@ -1,0 +1,78 @@
+{
+  "id": "teleq",
+  "realm": "teleq",
+  "displayName": "TeleQ",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "End customer who books tickets" },
+      { "name": "clerk", "description": "Counter clerk who serves customers" },
+      { "name": "admin", "description": "System administrator" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "teleq-api",
+      "name": "TeleQ API",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false
+    },
+    {
+      "clientId": "teleq-web",
+      "name": "TeleQ Web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "https://localhost:*/*",
+        "http://localhost:*/*"
+      ],
+      "webOrigins": ["+"],
+      "defaultClientScopes": ["openid", "profile", "email", "roles"],
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@teleq.local",
+      "email": "admin@teleq.local",
+      "firstName": "Admin",
+      "lastName": "User",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "Admin@1234", "temporary": false }],
+      "realmRoles": ["admin"]
+    },
+    {
+      "username": "clerk@teleq.local",
+      "email": "clerk@teleq.local",
+      "firstName": "Clerk",
+      "lastName": "User",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "Clerk@1234", "temporary": false }],
+      "realmRoles": ["clerk"]
+    }
+  ]
+}

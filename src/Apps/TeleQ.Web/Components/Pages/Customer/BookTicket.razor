@@ -1,0 +1,167 @@
+@page "/book"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Walk-In Ticket</PageTitle>
+
+<h1 class="mb-4">Get a Walk-In Ticket</h1>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <span>Loading branches and services...</span>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success">@_success</div>
+    }
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Phone Number</label>
+                    <input class="form-control" @bind="_phoneNumber" placeholder="01xxxxxxxxx" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Branch</label>
+                    <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
+                        <option value="">Select a branch</option>
+                        @foreach (var branch in _branches)
+                        {
+                            <option value="@branch.Id">@branch.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Service</label>
+                    <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
+                        <option value="">Select a service</option>
+                        @foreach (var service in _services)
+                        {
+                            <option value="@service.Id">@service.Name (@service.EstimatedDurationMinutes min)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@_submitting">
+                    @if (_submitting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-ticket me-2"></i>Issue Ticket
+                </button>
+                <a class="btn btn-outline-secondary" href="/">Cancel</a>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string _phoneNumber = string.Empty;
+    private string? _error;
+    private string? _success;
+    private bool _loading = true;
+    private bool _submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBranchesAsync();
+    }
+
+    private async Task LoadBranchesAsync()
+    {
+        try
+        {
+            _loading = true;
+            _error = null;
+            _branches.Clear();
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _services.Clear();
+
+        if (Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            try
+            {
+                _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+            }
+            catch (Exception ex)
+            {
+                _error = ex.Message;
+            }
+        }
+    }
+
+    private Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        _success = null;
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId) || string.IsNullOrWhiteSpace(_phoneNumber))
+        {
+            _error = "Please provide your phone number, branch, and service.";
+            return;
+        }
+
+        try
+        {
+            _submitting = true;
+            var ticket = await Api.IssueWalkInAsync(new IssueWalkInRequest(branchId, serviceId, _phoneNumber.Trim()));
+            if (ticket is null)
+            {
+                _error = "The ticket could not be created.";
+                return;
+            }
+
+            _success = $"Ticket {ticket.TicketNumber} created successfully. Redirecting...";
+            await Task.Delay(800);
+            Navigation.NavigateTo($"/ticket/{ticket.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+}

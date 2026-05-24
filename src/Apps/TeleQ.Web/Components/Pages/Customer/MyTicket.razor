@@ -1,0 +1,232 @@
+@page "/ticket/{Id:guid}"
+@attribute [AllowAnonymous]
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject HubConnectionFactory HubConnectionFactory
+
+<PageTitle>My Ticket</PageTitle>
+
+<h1 class="mb-4">My Ticket</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (!_verified)
+{
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <p class="text-muted">Enter the phone number used when the ticket was created to view its live status.</p>
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label">Phone Number</label>
+                    <input class="form-control" @bind="_phoneNumber" placeholder="01xxxxxxxxx" />
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary w-100" @onclick="VerifyAsync" disabled="@_loading">
+                        @if (_loading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Verify
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else if (_ticket is null)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <span>Loading ticket status...</span>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_calledAlert))
+    {
+        <div class="alert alert-warning border-3 border-warning shadow-sm fs-5">
+            <i class="bi bi-megaphone-fill me-2"></i>@_calledAlert
+        </div>
+    }
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                        <div>
+                            <p class="text-muted mb-1">Ticket Number</p>
+                            <h2 class="mb-0">@_ticket.TicketNumber</h2>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary-emphasis fs-6">@_ticket.Status</span>
+                    </div>
+
+                    <dl class="row mt-4 mb-0">
+                        <dt class="col-sm-4">Type</dt>
+                        <dd class="col-sm-8">@_ticket.Type</dd>
+                        <dt class="col-sm-4">Issued At</dt>
+                        <dd class="col-sm-8">@_ticket.IssuedAt.LocalDateTime:g</dd>
+                        <dt class="col-sm-4">Scheduled</dt>
+                        <dd class="col-sm-8">@(_ticket.ScheduledAt?.LocalDateTime.ToString("g") ?? "Walk-in")</dd>
+                        <dt class="col-sm-4">Counter</dt>
+                        <dd class="col-sm-8">@(_ticket.CounterLabel ?? "Not assigned yet")</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Live Queue Status</h5>
+                    @if (_position is null)
+                    {
+                        <p class="text-muted mb-0">This ticket is not currently waiting in the queue.</p>
+                    }
+                    else
+                    {
+                        <div class="display-6 fw-bold text-primary">#@_position.QueuePosition</div>
+                        <p class="mb-1">Tickets ahead: <strong>@_position.AheadCount</strong></p>
+                        <p class="mb-0">Estimated wait: <strong>@_position.EstimatedWaitMinutes minutes</strong></p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private HubConnection? _hub;
+    private TicketResponse? _ticket;
+    private MyPositionResponse? _position;
+    private string _phoneNumber = string.Empty;
+    private string? _error;
+    private string? _calledAlert;
+    private bool _loading;
+    private bool _verified;
+
+    private async Task VerifyAsync()
+    {
+        _error = null;
+        _calledAlert = null;
+
+        if (string.IsNullOrWhiteSpace(_phoneNumber))
+        {
+            _error = "Please enter the phone number used for the ticket.";
+            return;
+        }
+
+        try
+        {
+            _loading = true;
+            var ticket = await Api.GetTicketAsync(Id);
+            if (ticket is null)
+            {
+                _error = "Ticket not found.";
+                return;
+            }
+
+            if (!string.Equals(ticket.CustomerPhone, _phoneNumber.Trim(), StringComparison.Ordinal))
+            {
+                _error = "The provided phone number does not match this ticket.";
+                return;
+            }
+
+            _ticket = ticket;
+            _verified = true;
+            await RefreshTicketAsync();
+            await EnsureHubAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshTicketAsync()
+    {
+        if (_ticket is null)
+        {
+            return;
+        }
+
+        _ticket = await Api.GetTicketAsync(Id);
+        if (_ticket is null)
+        {
+            _verified = false;
+            _error = "Ticket not found.";
+            return;
+        }
+
+        if (_ticket.Status.Equals("Called", StringComparison.OrdinalIgnoreCase))
+        {
+            _calledAlert = $"Your ticket is being called! Please go to {_ticket.CounterLabel ?? "the assigned counter"}.";
+        }
+        else if (_ticket.Status is "Served" or "Cancelled" or "NoShow")
+        {
+            _calledAlert = null;
+        }
+
+        _position = _ticket.Status is "Waiting" or "Called"
+            ? await Api.GetMyPositionAsync(Id)
+            : null;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task EnsureHubAsync()
+    {
+        if (_hub is not null || _ticket is null)
+        {
+            return;
+        }
+
+        _hub = HubConnectionFactory.CreateQueueHubConnection();
+        _hub.On<object>("QueueUpdated", async _ => await RefreshTicketAsync());
+        _hub.On<TicketResponse>("TicketCalled", async message =>
+        {
+            if (message.Id == Id || message.TicketNumber == _ticket?.TicketNumber)
+            {
+                _calledAlert = $"Your ticket is being called! Please go to {message.CounterLabel ?? "the assigned counter"}.";
+            }
+
+            await RefreshTicketAsync();
+        });
+        _hub.On<object>("TicketServed", async _ => await RefreshTicketAsync());
+        _hub.On<object>("TicketNoShow", async _ => await RefreshTicketAsync());
+        _hub.On<object>("TicketCancelled", async _ => await RefreshTicketAsync());
+
+        await _hub.StartAsync();
+        await _hub.InvokeAsync("JoinQueue", _ticket.BranchId, _ticket.ServiceId);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_ticket is not null)
+            {
+                await _hub.InvokeAsync("LeaveQueue", _ticket.BranchId, _ticket.ServiceId);
+            }
+        }
+        catch
+        {
+        }
+
+        await _hub.DisposeAsync();
+    }
+}

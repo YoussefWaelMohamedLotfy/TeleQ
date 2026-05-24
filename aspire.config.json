@@ -1,0 +1,5 @@
+{
+    "appHost": {
+        "path": "src\\Aspire\\TeleQ.AppHost\\TeleQ.AppHost.csproj"
+    }
+}

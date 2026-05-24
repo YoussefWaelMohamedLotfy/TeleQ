@@ -1,0 +1,218 @@
+@page "/admin/timeslots"
+@attribute [Authorize(Roles = "admin")]
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Manage Time Slots</PageTitle>
+
+<h1 class="mb-4">Time Slots</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label">Branch</label>
+                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Service</label>
+                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())"><option value="">Select a service</option>@foreach (var service in _services){<option value="@service.Id">@service.Name</option>}</select>
+            </div>
+            <div class="col-md-4 d-grid">
+                <button class="btn btn-primary" @onclick="CreateNew" disabled="@(!Guid.TryParse(_selectedBranchId, out _) || !Guid.TryParse(_selectedServiceId, out _))"><i class="bi bi-plus-circle me-2"></i>Add Time Slot</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Start</th><th>End</th><th>Capacity</th><th>Booked</th><th>Recurring</th><th>Day / Date</th><th class="text-end">Actions</th></tr></thead><tbody>@if (_timeSlots.Count == 0){<tr><td colspan="7" class="text-center text-muted py-4">Select a service to load time slots.</td></tr>}else{@foreach (var slot in _timeSlots){<tr><td>@slot.StartTime.ToString("HH:mm")</td><td>@slot.EndTime.ToString("HH:mm")</td><td>@slot.Capacity</td><td>@slot.BookedCount</td><td>@(slot.IsRecurring ? "Yes" : "No")</td><td>@(slot.IsRecurring ? slot.DayOfWeek?.ToString() : slot.Date?.ToShortDateString())</td><td class="text-end"><button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAsync(slot.Id)">Delete</button></td></tr>}}</tbody></table></div></div>
+
+@if (_showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">Add Time Slot</h5><button type="button" class="btn-close" @onclick="CloseModal"></button></div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label">Start Time</label><input type="text" class="form-control" placeholder="09:00" @bind="_startTime" /></div>
+                        <div class="col-md-6"><label class="form-label">End Time</label><input type="text" class="form-control" placeholder="09:30" @bind="_endTime" /></div>
+                        <div class="col-md-6"><label class="form-label">Capacity</label><input type="number" min="1" class="form-control" @bind="_capacity" /></div>
+                        <div class="col-md-6 d-flex align-items-end"><div class="form-check"><input id="recurringToggle" class="form-check-input" type="checkbox" @bind="_isRecurring" /><label class="form-check-label" for="recurringToggle">Recurring weekly slot</label></div></div>
+                        @if (_isRecurring)
+                        {
+                            <div class="col-12"><label class="form-label">Day of Week</label><select class="form-select" @bind="_dayOfWeek"><option value="">Select day</option>@foreach (var day in Enum.GetValues<DayOfWeek>()){<option value="@day">@day</option>}</select></div>
+                        }
+                        else
+                        {
+                            <div class="col-12"><label class="form-label">Specific Date</label><input type="text" class="form-control" placeholder="2025-01-31" @bind="_date" /></div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CloseModal">Cancel</button><button class="btn btn-primary" @onclick="SaveAsync">Save</button></div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private readonly List<TimeSlotResponse> _timeSlots = [];
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string _startTime = "09:00";
+    private string _endTime = "09:30";
+    private int _capacity = 1;
+    private bool _isRecurring = true;
+    private string? _dayOfWeek;
+    private string? _date;
+    private string? _error;
+    private bool _showModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _services.Clear();
+        _timeSlots.Clear();
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        await LoadTimeSlotsAsync();
+    }
+
+    private async Task LoadTimeSlotsAsync()
+    {
+        _timeSlots.Clear();
+        if (!Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            _timeSlots.AddRange(await Api.GetTimeSlotsAsync(serviceId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void CreateNew()
+    {
+        _startTime = "09:00";
+        _endTime = "09:30";
+        _capacity = 1;
+        _isRecurring = true;
+        _dayOfWeek = DayOfWeek.Monday.ToString();
+        _date = null;
+        _showModal = true;
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task SaveAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            _error = "Select both branch and service first.";
+            return;
+        }
+
+        try
+        {
+            var request = new CreateTimeSlotRequest(
+                TimeOnly.Parse(_startTime),
+                TimeOnly.Parse(_endTime),
+                _capacity,
+                _isRecurring,
+                _isRecurring && Enum.TryParse<DayOfWeek>(_dayOfWeek, out var day) ? day : null,
+                branchId,
+                !_isRecurring && DateOnly.TryParse(_date, out var specificDate) ? specificDate : null);
+
+            await Api.CreateTimeSlotAsync(serviceId, request);
+            _showModal = false;
+            await LoadTimeSlotsAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        try
+        {
+            await Api.DeleteTimeSlotAsync(id);
+            await LoadTimeSlotsAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private bool HandleAuthFailure(HttpRequestException ex)
+    {
+        if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            var returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            return true;
+        }
+
+        return false;
+    }
+}

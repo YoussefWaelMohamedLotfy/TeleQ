@@ -1,0 +1,168 @@
+@page "/admin/services"
+@attribute [Authorize(Roles = "admin")]
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Manage Services</PageTitle>
+
+<h1 class="mb-4">Services</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3 align-items-end"><div class="col-md-6"><label class="form-label">Branch</label><select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select></div><div class="col-md-6 d-grid"><button class="btn btn-primary" @onclick="CreateNew" disabled="@(!Guid.TryParse(_selectedBranchId, out _))"><i class="bi bi-plus-circle me-2"></i>Add Service</button></div></div></div></div>
+
+<div class="card shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Name</th><th>Description</th><th>Duration</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody>@if (_services.Count == 0){<tr><td colspan="5" class="text-center text-muted py-4">Select a branch to manage services.</td></tr>}else{@foreach (var service in _services){<tr><td class="fw-semibold">@service.Name</td><td>@(service.Description ?? "—")</td><td>@service.EstimatedDurationMinutes min</td><td><span class="badge bg-success-subtle text-success-emphasis">@(service.IsActive ? "Active" : "Inactive")</span></td><td class="text-end"><div class="btn-group btn-group-sm"><button class="btn btn-outline-primary" @onclick="() => EditService(service)">Edit</button><button class="btn btn-outline-danger" @onclick="() => DeleteServiceAsync(service.Id)">Delete</button></div></td></tr>}}</tbody></table></div></div>
+
+@if (_showModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,.5)">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">@(_editingId is null ? "Add Service" : "Edit Service")</h5><button type="button" class="btn-close" @onclick="CloseModal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
+                    <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" rows="3" @bind="_description"></textarea></div>
+                    <div><label class="form-label">Estimated Duration (minutes)</label><input type="number" min="1" class="form-control" @bind="_estimatedDurationMinutes" /></div>
+                </div>
+                <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CloseModal">Cancel</button><button class="btn btn-primary" @onclick="SaveAsync">Save</button></div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private string? _selectedBranchId;
+    private Guid? _editingId;
+    private string _name = string.Empty;
+    private string? _description;
+    private int _estimatedDurationMinutes = 10;
+    private string? _error;
+    private bool _showModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        await LoadServicesAsync();
+    }
+
+    private async Task LoadServicesAsync()
+    {
+        _services.Clear();
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void CreateNew()
+    {
+        _editingId = null;
+        _name = string.Empty;
+        _description = null;
+        _estimatedDurationMinutes = 10;
+        _showModal = true;
+    }
+
+    private void EditService(ServiceResponse service)
+    {
+        _editingId = service.Id;
+        _name = service.Name;
+        _description = service.Description;
+        _estimatedDurationMinutes = service.EstimatedDurationMinutes;
+        _showModal = true;
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task SaveAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            _error = "Select a branch first.";
+            return;
+        }
+
+        try
+        {
+            if (_editingId is null)
+            {
+                await Api.CreateServiceAsync(branchId, new CreateServiceRequest(_name, _description, _estimatedDurationMinutes));
+            }
+            else
+            {
+                await Api.UpdateServiceAsync(_editingId.Value, new UpdateServiceRequest(_name, _description, _estimatedDurationMinutes, true));
+            }
+
+            _showModal = false;
+            await LoadServicesAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task DeleteServiceAsync(Guid id)
+    {
+        try
+        {
+            await Api.DeleteServiceAsync(id);
+            await LoadServicesAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private bool HandleAuthFailure(HttpRequestException ex)
+    {
+        if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            var returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            return true;
+        }
+
+        return false;
+    }
+}

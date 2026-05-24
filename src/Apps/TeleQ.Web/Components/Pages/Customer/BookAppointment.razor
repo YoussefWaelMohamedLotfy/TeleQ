@@ -1,0 +1,206 @@
+@page "/appointment"
+@attribute [AllowAnonymous]
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Book Appointment</PageTitle>
+
+<h1 class="mb-4">Book an Appointment</h1>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <span>Loading appointment options...</span>
+    </div>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_success))
+    {
+        <div class="alert alert-success">@_success</div>
+    }
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Phone Number</label>
+                    <input class="form-control" @bind="_phoneNumber" placeholder="01xxxxxxxxx" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
+                        <option value="">Select a branch</option>
+                        @foreach (var branch in _branches)
+                        {
+                            <option value="@branch.Id">@branch.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Service</label>
+                    <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
+                        <option value="">Select a service</option>
+                        @foreach (var service in _services)
+                        {
+                            <option value="@service.Id">@service.Name (@service.EstimatedDurationMinutes min)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Time Slot</label>
+                    <select class="form-select" value="@_selectedTimeSlotId" @onchange="OnTimeSlotChanged" disabled="@(!_timeSlots.Any())">
+                        <option value="">Select a time slot</option>
+                        @foreach (var slot in _timeSlots)
+                        {
+                            <option value="@slot.Id">@FormatTimeSlot(slot)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@_submitting">
+                    @if (_submitting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-calendar-check me-2"></i>Book Appointment
+                </button>
+                <a class="btn btn-outline-secondary" href="/">Cancel</a>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private readonly List<TimeSlotResponse> _timeSlots = [];
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string? _selectedTimeSlotId;
+    private string _phoneNumber = string.Empty;
+    private string? _error;
+    private string? _success;
+    private bool _loading = true;
+    private bool _submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _selectedTimeSlotId = null;
+        _services.Clear();
+        _timeSlots.Clear();
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        _selectedTimeSlotId = null;
+        _timeSlots.Clear();
+
+        if (!Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            _timeSlots.AddRange((await Api.GetTimeSlotsAsync(serviceId) ?? []).Where(slot => slot.AvailableCount > 0 || slot.Capacity > slot.BookedCount));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private Task OnTimeSlotChanged(ChangeEventArgs args)
+    {
+        _selectedTimeSlotId = args.Value?.ToString();
+        return Task.CompletedTask;
+    }
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        _success = null;
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId)
+            || !Guid.TryParse(_selectedServiceId, out var serviceId)
+            || !Guid.TryParse(_selectedTimeSlotId, out var timeSlotId)
+            || string.IsNullOrWhiteSpace(_phoneNumber))
+        {
+            _error = "Please provide your phone number, branch, service, and time slot.";
+            return;
+        }
+
+        try
+        {
+            _submitting = true;
+            var ticket = await Api.BookAppointmentAsync(new BookAppointmentRequest(branchId, serviceId, timeSlotId, _phoneNumber.Trim()));
+            if (ticket is null)
+            {
+                _error = "The appointment could not be booked.";
+                return;
+            }
+
+            _success = $"Appointment {ticket.TicketNumber} booked for {ticket.ScheduledAt?.LocalDateTime:g}. Redirecting...";
+            await Task.Delay(800);
+            Navigation.NavigateTo($"/ticket/{ticket.Id}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private static string FormatTimeSlot(TimeSlotResponse slot)
+    {
+        var remaining = slot.AvailableCount > 0 ? slot.AvailableCount : slot.Capacity - slot.BookedCount;
+        var dayText = slot.Date is not null ? slot.Date.Value.ToShortDateString() : slot.DayOfWeek?.ToString() ?? "Any day";
+        return $"{dayText} — {slot.StartTime:HH\\:mm} - {slot.EndTime:HH\\:mm} ({remaining} remaining)";
+    }
+}

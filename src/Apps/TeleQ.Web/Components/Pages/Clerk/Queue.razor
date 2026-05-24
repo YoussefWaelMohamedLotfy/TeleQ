@@ -1,0 +1,368 @@
+@page "/clerk/queue"
+@attribute [Authorize(Policy = "ClerkOrAdmin")]
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject HubConnectionFactory HubConnectionFactory
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Queue Desk</PageTitle>
+
+<h1 class="mb-4">Queue Desk</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Branch</label>
+                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
+                    <option value="">Select a branch</option>
+                    @foreach (var branch in _branches)
+                    {
+                        <option value="@branch.Id">@branch.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Service</label>
+                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
+                    <option value="">Select a service</option>
+                    @foreach (var service in _services)
+                    {
+                        <option value="@service.Id">@service.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Counter Label</label>
+                <input class="form-control" @bind="_counterLabel" placeholder="Counter A" />
+                <div class="form-text">The API currently resolves the counter label from user claims when calling next.</div>
+            </div>
+            <div class="col-md-3 d-grid">
+                <button class="btn btn-primary" @onclick="CallNextAsync" disabled="@(!_canOperate || _loadingAction)">
+                    @if (_loadingAction)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-megaphone me-2"></i>Call Next
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_loadingQueue)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <span>Loading queue...</span>
+    </div>
+}
+else if (_queue is not null)
+{
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-hourglass-split me-2"></i>Waiting</span>
+                    <span class="badge bg-primary rounded-pill">@_queue.WaitingCount</span>
+                </div>
+                <div class="card-body">
+                    @if (_queue.WaitingTickets.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No tickets are waiting.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var ticket in _queue.WaitingTickets.OrderBy(t => t.QueuePosition))
+                            {
+                                <div class="list-group-item px-0">
+                                    <div class="d-flex justify-content-between align-items-start">
+                                        <div>
+                                            <div class="fw-semibold">@ticket.TicketNumber</div>
+                                            <div class="text-muted small">Position #@ticket.QueuePosition · @ticket.CustomerPhone</div>
+                                        </div>
+                                        <span class="badge text-bg-light">@ticket.EstimatedWaitMinutes min</span>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-broadcast me-2"></i>Called / Serving</span>
+                    <span class="badge bg-warning text-dark rounded-pill">@_queue.CalledCount</span>
+                </div>
+                <div class="card-body">
+                    @if (_queue.CalledTickets.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No called tickets yet.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var ticket in _queue.CalledTickets)
+                            {
+                                <div class="list-group-item px-0">
+                                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                                        <div>
+                                            <div class="fw-semibold">@ticket.TicketNumber</div>
+                                            <div class="text-muted small">@ticket.CustomerPhone</div>
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-success" @onclick="() => MarkServedAsync(ticket.TicketId)">Served</button>
+                                            <button class="btn btn-outline-danger" @onclick="() => MarkNoShowAsync(ticket.TicketId)">No-Show</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private QueueStateResponse? _queue;
+    private HubConnection? _hub;
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string _counterLabel = "Counter";
+    private string? _error;
+    private bool _loadingQueue;
+    private bool _loadingAction;
+    private Guid _clerkId;
+
+    private bool _canOperate => Guid.TryParse(_selectedBranchId, out _) && Guid.TryParse(_selectedServiceId, out _);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadClerkContextAsync();
+        await LoadBranchesAsync();
+    }
+
+    private async Task LoadClerkContextAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var rawId = authState.User.FindFirst("sub")?.Value ?? authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (Guid.TryParse(rawId, out var clerkId))
+        {
+            _clerkId = clerkId;
+        }
+        else
+        {
+            _clerkId = Guid.NewGuid();
+        }
+    }
+
+    private async Task LoadBranchesAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _services.Clear();
+        _queue = null;
+        await DisposeHubAsync();
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        await RefreshQueueAsync();
+        await ReconnectHubAsync();
+    }
+
+    private async Task RefreshQueueAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            _queue = null;
+            return;
+        }
+
+        try
+        {
+            _loadingQueue = true;
+            _queue = await Api.GetQueueAsync(branchId, serviceId);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loadingQueue = false;
+        }
+    }
+
+    private async Task CallNextAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            _loadingAction = true;
+            await Api.CallNextAsync(new CallNextRequest(branchId, serviceId, _clerkId, _counterLabel));
+            await RefreshQueueAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loadingAction = false;
+        }
+    }
+
+    private async Task MarkServedAsync(Guid ticketId)
+    {
+        try
+        {
+            _loadingAction = true;
+            await Api.ServeTicketAsync(ticketId, new ServeTicketRequest(_clerkId));
+            await RefreshQueueAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loadingAction = false;
+        }
+    }
+
+    private async Task MarkNoShowAsync(Guid ticketId)
+    {
+        try
+        {
+            _loadingAction = true;
+            await Api.NoShowAsync(ticketId, new NoShowRequest(_clerkId));
+            await RefreshQueueAsync();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loadingAction = false;
+        }
+    }
+
+    private async Task ReconnectHubAsync()
+    {
+        await DisposeHubAsync();
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        _hub = HubConnectionFactory.CreateQueueHubConnection();
+        _hub.On<object>("QueueUpdated", async _ => await RefreshQueueAsync());
+        _hub.On<object>("TicketCalled", async _ => await RefreshQueueAsync());
+        _hub.On<object>("TicketServed", async _ => await RefreshQueueAsync());
+        _hub.On<object>("TicketNoShow", async _ => await RefreshQueueAsync());
+        _hub.On<object>("TicketCancelled", async _ => await RefreshQueueAsync());
+        await _hub.StartAsync();
+        await _hub.InvokeAsync("JoinQueue", branchId, serviceId);
+    }
+
+    private bool HandleAuthFailure(HttpRequestException ex)
+    {
+        if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            var returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task DisposeHubAsync()
+    {
+        if (_hub is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Guid.TryParse(_selectedBranchId, out var branchId) && Guid.TryParse(_selectedServiceId, out var serviceId))
+            {
+                await _hub.InvokeAsync("LeaveQueue", branchId, serviceId);
+            }
+        }
+        catch
+        {
+        }
+
+        await _hub.DisposeAsync();
+        _hub = null;
+    }
+
+    public async ValueTask DisposeAsync() => await DisposeHubAsync();
+}

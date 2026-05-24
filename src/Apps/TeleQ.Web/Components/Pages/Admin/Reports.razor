@@ -1,0 +1,134 @@
+@page "/admin/reports"
+@attribute [Authorize(Roles = "admin")]
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Reports</PageTitle>
+
+<h1 class="mb-4">Reports</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label">Branch</label><select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select></div><div class="col-md-5"><label class="form-label">Service</label><select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())"><option value="">Select a service</option>@foreach (var service in _services){<option value="@service.Id">@service.Name</option>}</select></div><div class="col-md-2 d-grid"><button class="btn btn-outline-primary" @onclick="LoadStatsAsync">Refresh</button></div></div></div></div>
+
+<div class="row g-4">
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Total Issued</div><div class="display-6">@(_stats?.TotalIssued ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Served</div><div class="display-6">@(_stats?.TotalServed ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">No-Show</div><div class="display-6">@(_stats?.TotalNoShow ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Cancelled</div><div class="display-6">@(_stats?.TotalCancelled ?? 0)</div></div></div></div>
+</div>
+
+@if (_stats is not null)
+{
+    var total = Math.Max(_stats.TotalIssued, 1);
+    var servedWidth = _stats.TotalServed * 100d / total;
+    var noShowWidth = _stats.TotalNoShow * 100d / total;
+    var cancelledWidth = _stats.TotalCancelled * 100d / total;
+
+    <div class="card shadow-sm mt-4">
+        <div class="card-body">
+            <h5 class="card-title">Daily Breakdown</h5>
+            <div class="progress-stacked mb-3" style="height: 1.5rem;">
+                <div class="progress" role="progressbar" style="width: @servedWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-success">Served</div></div>
+                <div class="progress" role="progressbar" style="width: @noShowWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-warning text-dark">No-Show</div></div>
+                <div class="progress" role="progressbar" style="width: @cancelledWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-danger">Cancelled</div></div>
+            </div>
+            <div class="row text-center g-3">
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Appointments</div><div>@_stats.TotalAppointments</div></div></div>
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Walk-Ins</div><div>@_stats.TotalWalkIns</div></div></div>
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Average Wait</div><div>@_stats.AverageWaitMinutes.ToString("0.0") min</div></div></div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private DailyStatsResponse? _stats;
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _services.Clear();
+        _stats = null;
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        await LoadStatsAsync();
+    }
+
+    private async Task LoadStatsAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            _stats = await Api.GetStatsAsync(branchId, serviceId);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private bool HandleAuthFailure(HttpRequestException ex)
+    {
+        if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            var returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            return true;
+        }
+
+        return false;
+    }
+}

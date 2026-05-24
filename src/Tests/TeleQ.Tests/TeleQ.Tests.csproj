@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Testing.Platform.MSBuild" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Backend\TeleQ.Api\TeleQ.Api.csproj" />
+  </ItemGroup>
+
+</Project>

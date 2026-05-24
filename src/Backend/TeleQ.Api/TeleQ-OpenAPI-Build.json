@@ -1,0 +1,9 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "GetDocument.Insider | v1",
+    "description": "GetDocument Command-line Tool inside man",
+    "version": "1.0"
+  },
+  "paths": { }
+}

@@ -1,0 +1,92 @@
+@inherits LayoutComponentBase
+
+<div class="d-flex flex-column min-vh-100 bg-body-tertiary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="bi bi-ticket-perforated me-2"></i>TeleQ
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#teleqNavbar">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="teleqNavbar">
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <AuthorizeView Context="authState">
+                        <Authorized>
+                            <span class="text-white-50 small d-none d-lg-inline">
+                                <i class="bi bi-person-circle me-1"></i>@(authState.User.Identity?.Name ?? "Authenticated user")
+                            </span>
+                            <a class="btn btn-outline-light btn-sm" href="/logout">
+                                <i class="bi bi-box-arrow-right me-1"></i>Logout
+                            </a>
+                        </Authorized>
+                        <NotAuthorized>
+                            <a class="btn btn-light btn-sm" href="/login">
+                                <i class="bi bi-box-arrow-in-right me-1"></i>Login
+                            </a>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid flex-grow-1">
+        <div class="row g-0">
+            <aside class="col-12 col-lg-3 col-xl-2 border-end bg-white">
+                <div class="p-3">
+                    <p class="text-uppercase text-muted small fw-semibold mb-3">Navigation</p>
+                    <nav class="nav nav-pills flex-column gap-1">
+                        <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                            <i class="bi bi-house-door me-2"></i>Home
+                        </NavLink>
+                        <NavLink class="nav-link" href="/book">
+                            <i class="bi bi-ticket me-2"></i>Walk-In Ticket
+                        </NavLink>
+                        <NavLink class="nav-link" href="/appointment">
+                            <i class="bi bi-calendar-check me-2"></i>Book Appointment
+                        </NavLink>
+                        <AuthorizeView>
+                            <Authorized Context="userState">
+                                <AuthorizeView Roles="clerk,admin" Context="staffState">
+                                    <NavLink class="nav-link" href="/clerk/queue">
+                                        <i class="bi bi-collection me-2"></i>Queue Desk
+                                    </NavLink>
+                                    <NavLink class="nav-link" href="/clerk/dashboard">
+                                        <i class="bi bi-speedometer2 me-2"></i>Clerk Dashboard
+                                    </NavLink>
+                                </AuthorizeView>
+                                <AuthorizeView Roles="admin" Context="adminState">
+                                    <hr class="my-3" />
+                                    <p class="text-uppercase text-muted small fw-semibold mb-2">Administration</p>
+                                    <NavLink class="nav-link" href="/admin/branches">
+                                        <i class="bi bi-building me-2"></i>Branches
+                                    </NavLink>
+                                    <NavLink class="nav-link" href="/admin/services">
+                                        <i class="bi bi-list-check me-2"></i>Services
+                                    </NavLink>
+                                    <NavLink class="nav-link" href="/admin/timeslots">
+                                        <i class="bi bi-clock me-2"></i>Time Slots
+                                    </NavLink>
+                                    <NavLink class="nav-link" href="/admin/reports">
+                                        <i class="bi bi-bar-chart me-2"></i>Reports
+                                    </NavLink>
+                                </AuthorizeView>
+                            </Authorized>
+                        </AuthorizeView>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="col-12 col-lg-9 col-xl-10">
+                <article class="p-3 p-md-4">
+                    @Body
+                </article>
+            </main>
+        </div>
+    </div>
+
+    <footer class="bg-white border-top py-2 text-center text-muted small">
+        &copy; @DateTime.Now.Year TeleQ — Queue Management System
+    </footer>
+</div>

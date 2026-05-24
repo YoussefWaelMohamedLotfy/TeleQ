@@ -1,0 +1,180 @@
+@page "/clerk/dashboard"
+@attribute [Authorize(Policy = "ClerkOrAdmin")]
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+@inject TeleQApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Clerk Dashboard</PageTitle>
+
+<h1 class="mb-4">Clerk Dashboard</h1>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Branch</label>
+                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
+                    <option value="">Select a branch</option>
+                    @foreach (var branch in _branches)
+                    {
+                        <option value="@branch.Id">@branch.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Service</label>
+                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
+                    <option value="">Select a service</option>
+                    @foreach (var service in _services)
+                    {
+                        <option value="@service.Id">@service.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-outline-primary w-100" @onclick="RefreshAsync">Refresh Now</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Waiting</div><div class="display-6">@(_queue?.WaitingCount ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Called / Serving</div><div class="display-6">@(_queue?.CalledCount ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Served Today</div><div class="display-6">@(_stats?.TotalServed ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">No-Show Today</div><div class="display-6">@(_stats?.TotalNoShow ?? 0)</div></div></div></div>
+</div>
+
+@code {
+    private readonly List<BranchResponse> _branches = [];
+    private readonly List<ServiceResponse> _services = [];
+    private QueueStateResponse? _queue;
+    private DailyStatsResponse? _stats;
+    private string? _selectedBranchId;
+    private string? _selectedServiceId;
+    private string? _error;
+    private PeriodicTimer? _timer;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _branches.AddRange(await Api.GetBranchesAsync() ?? []);
+            StartAutoRefresh();
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnBranchChanged(ChangeEventArgs args)
+    {
+        _selectedBranchId = args.Value?.ToString();
+        _selectedServiceId = null;
+        _services.Clear();
+        _queue = null;
+        _stats = null;
+
+        if (!Guid.TryParse(_selectedBranchId, out var branchId))
+        {
+            return;
+        }
+
+        try
+        {
+            _services.AddRange(await Api.GetServicesAsync(branchId) ?? []);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task OnServiceChanged(ChangeEventArgs args)
+    {
+        _selectedServiceId = args.Value?.ToString();
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!Guid.TryParse(_selectedBranchId, out var branchId) || !Guid.TryParse(_selectedServiceId, out var serviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            _queue = await Api.GetQueueAsync(branchId, serviceId);
+            _stats = await Api.GetStatsAsync(branchId, serviceId);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (HttpRequestException ex) when (HandleAuthFailure(ex))
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void StartAutoRefresh()
+    {
+        _cts = new CancellationTokenSource();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        _ = RunTimerAsync(_cts.Token);
+    }
+
+    private async Task RunTimerAsync(CancellationToken cancellationToken)
+    {
+        if (_timer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await _timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await RefreshAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private bool HandleAuthFailure(HttpRequestException ex)
+    {
+        if (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            var returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            return true;
+        }
+
+        return false;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        _timer?.Dispose();
+        _cts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
