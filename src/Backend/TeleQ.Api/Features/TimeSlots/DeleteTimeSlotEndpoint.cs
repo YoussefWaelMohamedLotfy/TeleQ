@@ -1,11 +1,13 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.TimeSlots;
 
 /// <summary>Soft-deletes (deactivates) a time slot. Restricted to Admin users.</summary>
-public sealed class DeleteTimeSlotEndpoint(AppDbContext db) : EndpointWithoutRequest
+public sealed class DeleteTimeSlotEndpoint(AppDbContext db, HybridCache cache) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -23,8 +25,10 @@ public sealed class DeleteTimeSlotEndpoint(AppDbContext db) : EndpointWithoutReq
 
         if (slot is null) { await Send.NotFoundAsync(ct); return; }
 
+        var serviceId = slot.ServiceId;
         slot.IsActive = false;
         await db.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync(["timeslots", $"timeslots:service:{serviceId}", $"timeslot:{id}"], ct);
         await Send.NoContentAsync(ct);
     }
 }

@@ -2,6 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Features.Notifications;
@@ -11,7 +13,8 @@ namespace TeleQ.Api.Features.Queue;
 /// <summary>Calls the next waiting ticket in the queue for the specified service. Restricted to Clerk and Admin users.</summary>
 public sealed class CallNextTicketEndpoint(
     IDocumentSession session,
-    IHubContext<QueueHub> hub) : Endpoint<CallNextRequest, CallNextResponse>
+    IHubContext<QueueHub> hub,
+    HybridCache cache) : Endpoint<CallNextRequest, CallNextResponse>
 {
     public override void Configure()
     {
@@ -52,6 +55,7 @@ public sealed class CallNextTicketEndpoint(
 
         session.Events.Append(next.TicketId, evt);
         await session.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync([$"queue:{req.BranchId}:{req.ServiceId}", $"ticket:{next.TicketId}"], ct);
 
         var response = new CallNextResponse(
             next.TicketId, next.TicketNumber, next.CustomerPhone,

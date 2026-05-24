@@ -2,6 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Features.Notifications;
@@ -11,7 +13,8 @@ namespace TeleQ.Api.Features.Queue;
 /// <summary>Marks a waiting or called ticket as no-show. Restricted to Clerk and Admin users.</summary>
 public sealed class NoShowTicketEndpoint(
     IDocumentSession session,
-    IHubContext<QueueHub> hub) : EndpointWithoutRequest
+    IHubContext<QueueHub> hub,
+    HybridCache cache) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -48,6 +51,7 @@ public sealed class NoShowTicketEndpoint(
 
         session.Events.Append(id, evt);
         await session.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync([$"ticket:{id}", $"queue:{ticket.BranchId}:{ticket.ServiceId}"], ct);
 
         await hub.Clients.Group(QueueHub.GroupName(ticket.BranchId, ticket.ServiceId))
             .SendAsync("TicketNoShow", new { TicketId = id, TicketNumber = ticket.TicketNumber }, ct);

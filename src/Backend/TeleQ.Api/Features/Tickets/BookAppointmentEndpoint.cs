@@ -2,6 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
@@ -15,7 +17,8 @@ public sealed class BookAppointmentEndpoint(
     AppDbContext db,
     IDocumentSession session,
     IHubContext<QueueHub> hub,
-    TicketMapper mapper) : Endpoint<BookAppointmentRequest, TicketResponse>
+    TicketMapper mapper,
+    HybridCache cache) : Endpoint<BookAppointmentRequest, TicketResponse>
 {
     public override void Configure()
     {
@@ -75,6 +78,7 @@ public sealed class BookAppointmentEndpoint(
 
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync([$"queue:{req.BranchId}:{req.ServiceId}", $"timeslot:{req.TimeSlotId}", "timeslots"], ct);
 
         var ticket = await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct);
 

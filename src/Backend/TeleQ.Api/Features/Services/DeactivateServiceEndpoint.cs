@@ -1,11 +1,13 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.Services;
 
 /// <summary>Soft-deletes (deactivates) a service. Restricted to Admin users.</summary>
-public sealed class DeactivateServiceEndpoint(AppDbContext db) : EndpointWithoutRequest
+public sealed class DeactivateServiceEndpoint(AppDbContext db, HybridCache cache) : EndpointWithoutRequest
 {
     public override void Configure()
     {
@@ -23,8 +25,10 @@ public sealed class DeactivateServiceEndpoint(AppDbContext db) : EndpointWithout
 
         if (service is null) { await Send.NotFoundAsync(ct); return; }
 
+        var branchId = service.BranchId;
         service.IsActive = false;
         await db.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync(["services", $"services:branch:{branchId}", $"service:{id}"], ct);
         await Send.NoContentAsync(ct);
     }
 }

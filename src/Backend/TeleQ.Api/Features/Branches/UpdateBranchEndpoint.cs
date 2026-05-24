@@ -1,11 +1,13 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.Branches;
 
 /// <summary>Updates an existing branch's details. Restricted to Admin users.</summary>
-public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranchRequest>
+public sealed class UpdateBranchEndpoint(AppDbContext db, HybridCache cache) : Endpoint<UpdateBranchRequest>
 {
     public override void Configure()
     {
@@ -32,6 +34,7 @@ public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranc
         branch.PhoneNumber = req.PhoneNumber;
 
         await db.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync(["branches", $"branch:{id}"], ct);
         await Send.NoContentAsync(ct);
     }
 }

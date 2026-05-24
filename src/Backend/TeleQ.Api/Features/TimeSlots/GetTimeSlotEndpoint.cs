@@ -1,11 +1,13 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.TimeSlots;
 
 /// <summary>Returns a single time slot by its identifier.</summary>
-public sealed class GetTimeSlotEndpoint(AppDbContext db)
+public sealed class GetTimeSlotEndpoint(AppDbContext db, HybridCache cache)
     : EndpointWithoutRequest<TimeSlotResponse, TimeSlotMapper>
 {
     public override void Configure()
@@ -19,10 +21,19 @@ public sealed class GetTimeSlotEndpoint(AppDbContext db)
     public override async Task HandleAsync(CancellationToken ct)
     {
         var id = Route<Guid>("id");
-        var slot = await db.TimeSlots.FindAsync([id], ct);
 
-        if (slot is null) { await Send.NotFoundAsync(ct); return; }
+        var result = await cache.GetOrCreateAsync<TimeSlotResponse?>(
+            CacheKeys.TimeSlot(id),
+            async ct =>
+            {
+                var slot = await db.TimeSlots.FindAsync([id], ct);
+                return slot is null ? null : Map.FromEntity(slot);
+            },
+            CacheOptions.Static,
+            tags: ["timeslots", $"timeslot:{id}"],
+            cancellationToken: ct);
 
-        await Send.OkAsync(Map.FromEntity(slot), ct);
+        if (result is null) { await Send.NotFoundAsync(ct); return; }
+        await Send.OkAsync(result, ct);
     }
 }

@@ -1,11 +1,13 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 
 namespace TeleQ.Api.Features.Reports;
 
 /// <summary>Returns the full event log for a ticket's lifecycle. Restricted to Admin users.</summary>
-public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
+public sealed class GetTicketEventLogEndpoint(IDocumentSession session, HybridCache cache)
     : EndpointWithoutRequest<List<TicketEventEntry>>
 {
     public override void Configure()
@@ -20,22 +22,26 @@ public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
     public override async Task HandleAsync(CancellationToken ct)
     {
         var id = Route<Guid>("id");
-        var events = await session.Events.FetchStreamAsync(id, token: ct);
 
-        if (!events.Any())
-        {
-            await Send.NotFoundAsync(ct);
-            return;
-        }
+        var result = await cache.GetOrCreateAsync<List<TicketEventEntry>?>(
+            CacheKeys.TicketEventLog(id),
+            async ct =>
+            {
+                var events = await session.Events.FetchStreamAsync(id, token: ct);
+                return !events.Any()
+                    ? null
+                    : events.Select(e => new TicketEventEntry(
+                        e.EventTypeName,
+                        e.Data,
+                        e.Timestamp,
+                        e.Version))
+                    .ToList();
+            },
+            CacheOptions.Stats,
+            CacheKeys.EventLogTags(id),
+            ct);
 
-        var result = events
-            .Select(e => new TicketEventEntry(
-                e.EventTypeName,
-                e.Data,
-                e.Timestamp,
-                e.Version))
-            .ToList();
-
+        if (result is null) { await Send.NotFoundAsync(ct); return; }
         await Send.OkAsync(result, ct);
     }
 }

@@ -1,6 +1,8 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Data;
@@ -10,7 +12,8 @@ namespace TeleQ.Api.Features.Tickets;
 /// <summary>Reschedules an appointment ticket to a new time slot. The customer must provide their phone number to confirm ownership.</summary>
 public sealed class RescheduleTicketEndpoint(
     AppDbContext db,
-    IDocumentSession session) : Endpoint<RescheduleTicketRequest>
+    IDocumentSession session,
+    HybridCache cache) : Endpoint<RescheduleTicketRequest>
 {
     public override void Configure()
     {
@@ -85,6 +88,11 @@ public sealed class RescheduleTicketEndpoint(
         session.Events.Append(id, evt);
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
+
+        var tagsToInvalidate = new List<string> { $"ticket:{id}", $"timeslot:{req.NewTimeSlotId}", "timeslots" };
+        if (ticket.TimeSlotId.HasValue)
+            tagsToInvalidate.Add($"timeslot:{ticket.TimeSlotId.Value}");
+        await cache.RemoveByTagAsync(tagsToInvalidate, ct);
 
         await Send.NoContentAsync(ct);
     }

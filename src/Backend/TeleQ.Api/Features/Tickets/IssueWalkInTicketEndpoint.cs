@@ -3,6 +3,8 @@ using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
@@ -16,7 +18,8 @@ public sealed class IssueWalkInTicketEndpoint(
     AppDbContext db,
     IDocumentSession session,
     IHubContext<QueueHub> hub,
-    TicketMapper mapper) : Endpoint<IssueWalkInTicketRequest, TicketResponse>
+    TicketMapper mapper,
+    HybridCache cache) : Endpoint<IssueWalkInTicketRequest, TicketResponse>
 {
     public override void Configure()
     {
@@ -53,6 +56,7 @@ public sealed class IssueWalkInTicketEndpoint(
 
         session.Events.StartStream<Ticket>(ticketId, evt);
         await session.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync($"queue:{req.BranchId}:{req.ServiceId}", ct);
 
         var ticket = await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct);
 

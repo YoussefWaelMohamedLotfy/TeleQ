@@ -1,12 +1,14 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.Services;
 
 /// <summary>Creates a new service under a branch. Restricted to Admin users.</summary>
-public sealed class CreateServiceEndpoint(AppDbContext db)
+public sealed class CreateServiceEndpoint(AppDbContext db, HybridCache cache)
     : Endpoint<CreateServiceRequest, ServiceResponse, ServiceMapper>
 {
     public override void Configure()
@@ -35,6 +37,7 @@ public sealed class CreateServiceEndpoint(AppDbContext db)
 
         db.Services.Add(service);
         await db.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync(["services", $"services:branch:{branchId}"], ct);
 
         await Send.CreatedAtAsync<GetServiceEndpoint>(
             new { id = service.Id },

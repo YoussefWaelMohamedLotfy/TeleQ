@@ -1,12 +1,14 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.TimeSlots;
 
 /// <summary>Creates a new time slot for a service. Restricted to Admin users.</summary>
-public sealed class CreateTimeSlotEndpoint(AppDbContext db)
+public sealed class CreateTimeSlotEndpoint(AppDbContext db, HybridCache cache)
     : Endpoint<CreateTimeSlotRequest, TimeSlotResponse, TimeSlotMapper>
 {
     public override void Configure()
@@ -49,6 +51,7 @@ public sealed class CreateTimeSlotEndpoint(AppDbContext db)
 
         db.TimeSlots.Add(slot);
         await db.SaveChangesAsync(ct);
+        await cache.RemoveByTagAsync(["timeslots", $"timeslots:service:{serviceId}"], ct);
 
         await Send.CreatedAtAsync<GetTimeSlotEndpoint>(
             new { id = slot.Id },

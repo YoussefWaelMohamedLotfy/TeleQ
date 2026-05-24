@@ -1,12 +1,14 @@
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
+using Microsoft.Extensions.Caching.Hybrid;
+using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 
 namespace TeleQ.Api.Features.Tickets;
 
 /// <summary>Returns a ticket's current state by replaying its event stream.</summary>
-public sealed class GetTicketEndpoint(IDocumentSession session)
+public sealed class GetTicketEndpoint(IDocumentSession session, HybridCache cache)
     : EndpointWithoutRequest<TicketResponse, TicketMapper>
 {
     public override void Configure()
@@ -20,10 +22,19 @@ public sealed class GetTicketEndpoint(IDocumentSession session)
     public override async Task HandleAsync(CancellationToken ct)
     {
         var id = Route<Guid>("id");
-        var ticket = await session.Events.AggregateStreamAsync<Ticket>(id, token: ct);
 
-        if (ticket is null) { await Send.NotFoundAsync(ct); return; }
+        var result = await cache.GetOrCreateAsync<TicketResponse?>(
+            CacheKeys.Ticket(id),
+            async ct =>
+            {
+                var ticket = await session.Events.AggregateStreamAsync<Ticket>(id, token: ct);
+                return ticket is null ? null : Map.FromEntity(ticket);
+            },
+            CacheOptions.Ticket,
+            CacheKeys.TicketTags(id),
+            ct);
 
-        await Send.OkAsync(Map.FromEntity(ticket), ct);
+        if (result is null) { await Send.NotFoundAsync(ct); return; }
+        await Send.OkAsync(result, ct);
     }
 }

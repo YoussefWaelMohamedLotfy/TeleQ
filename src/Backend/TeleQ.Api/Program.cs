@@ -8,6 +8,8 @@ using JasperFx.Events.Projections;
 using Marten;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Hybrid;
 using Scalar.AspNetCore;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
@@ -41,6 +43,9 @@ builder.Services.AddSingleton<ServiceMapper>();
 builder.Services.AddSingleton<TimeSlotMapper>();
 builder.Services.AddSingleton<TicketMapper>();
 
+builder.AddRedisDistributedCache("garnet");
+builder.Services.AddHybridCache();
+
 builder.Services.AddFastEndpoints()
     .AddVersioning(o =>
     {
@@ -51,15 +56,6 @@ builder.Services.AddFastEndpoints()
         // URL prefix (/v1/...) is handled by FastEndpoints' built-in PrependToRoute.
         o.ApiVersionReader = new HeaderApiVersionReader("X-Api-Version");
     })
-    //.OpenApiDocument(o =>
-    //{
-    //    o.DocumentName = "v1";
-    //    o.Title = "TeleQ API";
-    //    o.Version = "v1";
-    //    o.MaxEndpointVersion = 1;
-    //    o.ShortSchemaNames = true;
-    //    o.EnableJWTBearerAuth = true;
-    //})
     .AddOpenApi(options =>
     {
         options.AddScalarTransformers();
@@ -79,12 +75,18 @@ builder.Services.AddFastEndpoints()
         );
     });
 
-builder.AddNpgsqlDbContext<AppDbContext>("TeleQ-Db");
+builder.AddNpgsqlDbContext<AppDbContext>("TeleQ-Db", configureDbContextOptions: opts =>
+{
+    opts.UseSeeding(AppDbSeeder.Seed)
+        .UseAsyncSeeding(AppDbSeeder.SeedAsync);
+});
 
 builder.Services.AddMarten(opts =>
     {
         opts.Connection(builder.Configuration.GetConnectionString("TeleQ-Db")!);
         opts.DatabaseSchemaName = "events";
+
+        opts.UseSystemTextJsonForSerialization();
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
 

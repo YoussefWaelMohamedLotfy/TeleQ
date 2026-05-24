@@ -24,6 +24,9 @@
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
+		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
+		<PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" />
+		<PackageReference Include="Bogus" />
 		<PackageReference Include="Scalar.AspNetCore.Microsoft" />
 		<PackageReference Include="Telegram.Bot" />
 	</ItemGroup>
