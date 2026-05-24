@@ -173,9 +173,9 @@ app.MapScalarApiReference(options =>
                     "https://localhost:8081/realms/teleq/protocol/openid-connect/auth";
                 x.TokenUrl = "https://localhost:8081/realms/teleq/protocol/openid-connect/token";
                 x.Pkce = Pkce.Sha256;
-                x.RedirectUri = "https://localhost:7157/signin-oidc";
+                x.RedirectUri = "https://localhost:7157/scalar/v1";
                 x.ClientId = "teleq-api";
-                x.ClientSecret = "UfIMrte6w4gRCt2PYGL6ywPDtr1xR9cB";
+                x.ClientSecret = "test";
                 x.SelectedScopes = ["openid", "profile", "email", "offline_access"];
             }
         )

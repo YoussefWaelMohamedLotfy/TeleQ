@@ -26,8 +26,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "https://localhost:7157/signin-oidc",
-        "http://localhost:5255/signin-oidc"
+        "https://localhost:7157/scalar/*",
+        "http://localhost:5255/scalar/*"
       ],
       "webOrigins": [
         "https://localhost:7157",
@@ -45,6 +45,16 @@
             "multivalued": "true",
             "userinfo.token.claim": "true",
             "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "teleq-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "teleq-api",
+            "id.token.claim": "false",
             "access.token.claim": "true"
           }
         }
@@ -77,6 +87,16 @@
             "multivalued": "true",
             "userinfo.token.claim": "true",
             "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "teleq-api audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "teleq-api",
+            "id.token.claim": "false",
             "access.token.claim": "true"
           }
         }
