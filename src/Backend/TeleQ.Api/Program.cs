@@ -125,6 +125,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         });
 
 builder.Services.AddAuthorizationBuilder()
+    .AddFallbackPolicy("Default", p => p.RequireAuthenticatedUser())
     .AddPolicy("AdminOnly", p => p.RequireRole("admin"))
     .AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"))
     .AddPolicy("AnyStaff", p => p.RequireRole("clerk", "admin"));
@@ -158,7 +159,7 @@ app.UseFastEndpoints(c =>
 
 app.MapHub<QueueHub>("/hubs/queue");
 
-app.MapOpenApi();
+app.MapOpenApi().AllowAnonymous();
 app.MapScalarApiReference(options =>
 {
     options
@@ -188,6 +189,6 @@ app.MapScalarApiReference(options =>
         var isDefault = i == descriptions.Count - 1;
         options.AddDocument(description.GroupName, description.GroupName, isDefault: isDefault);
     }
-});
+}).AllowAnonymous();
 
 await app.RunAsync();
