@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
 using TeleQ.Api.Data.Entities;
@@ -30,6 +31,7 @@ public sealed class GetBranchesEndpoint(AppDbContext db) : EndpointWithoutReques
         Get("/branches");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -52,6 +54,7 @@ public sealed class GetBranchEndpoint(AppDbContext db) : EndpointWithoutRequest<
         Get("/branches/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -80,6 +83,7 @@ public sealed class CreateBranchEndpoint(AppDbContext db) : Endpoint<CreateBranc
         Post("/branches");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CreateBranchRequest req, CancellationToken ct)
@@ -115,6 +119,7 @@ public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranc
         Put("/branches/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(UpdateBranchRequest req, CancellationToken ct)
@@ -146,6 +151,7 @@ public sealed class DeactivateBranchEndpoint(AppDbContext db) : EndpointWithoutR
         Delete("/branches/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

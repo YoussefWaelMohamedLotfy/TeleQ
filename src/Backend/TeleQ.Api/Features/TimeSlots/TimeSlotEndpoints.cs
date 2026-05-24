@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
 using TeleQ.Api.Data.Entities;
@@ -38,6 +39,7 @@ public sealed class GetTimeSlotsEndpoint(AppDbContext db) : EndpointWithoutReque
         Get("/services/{serviceId:guid}/timeslots");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -63,6 +65,7 @@ public sealed class GetTimeSlotEndpoint(AppDbContext db) : EndpointWithoutReques
         Get("/timeslots/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -94,6 +97,7 @@ public sealed class CreateTimeSlotEndpoint(AppDbContext db) : Endpoint<CreateTim
         Post("/services/{serviceId:guid}/timeslots");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CreateTimeSlotRequest req, CancellationToken ct)
@@ -156,6 +160,7 @@ public sealed class DeleteTimeSlotEndpoint(AppDbContext db) : EndpointWithoutReq
         Delete("/timeslots/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

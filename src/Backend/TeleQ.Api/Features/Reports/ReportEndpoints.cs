@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Marten;
 using TeleQ.Api.Common.Projections;
 
@@ -20,6 +21,7 @@ public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
         Get("/reports/tickets/{id:guid}/events");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -55,6 +57,7 @@ public sealed class GetDailyStatsEndpoint(IDocumentSession session)
         Get("/reports/daily-stats");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -93,6 +96,7 @@ public sealed class GetDailyStatsRangeEndpoint(IDocumentSession session)
         Get("/reports/daily-stats/range");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

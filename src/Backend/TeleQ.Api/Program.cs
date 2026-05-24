@@ -1,18 +1,28 @@
+using Asp.Versioning;
 using FastEndpoints;
-using FastEndpoints.Swagger;
+using FastEndpoints.AspVersioning;
+using FastEndpoints.OpenApi;
 using JasperFx;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using Marten;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Scalar.AspNetCore;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
 using TeleQ.Api.Features.Notifications;
+using TeleQ.Api.OpenAPI;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+// Define the API version set used across all endpoints.
+// New versions are registered here and mapped to endpoints via Options().
+VersionSets.CreateApi("TeleQ", v => v
+    .HasApiVersion(new ApiVersion(1, 0))
+    .HasApiVersion(new ApiVersion(2, 0)));
 
 builder.AddServiceDefaults();
 
@@ -21,15 +31,41 @@ builder.WebHost.ConfigureKestrel(x => x.AddServerHeader = false);
 builder.Services.AddProblemDetails();
 
 builder.Services.AddFastEndpoints()
-    .SwaggerDocument(o =>
+    .AddVersioning(o =>
     {
-        o.MaxEndpointVersion = 1;
-        o.DocumentSettings = s =>
-        {
-            s.Title = "TeleQ API";
-            s.Version = "v1";
-            s.DocumentName = "v1";
-        };
+        o.DefaultApiVersion = new ApiVersion(1, 0);
+        o.AssumeDefaultVersionWhenUnspecified = true;
+        o.ReportApiVersions = true;
+        // Header versioning: X-Api-Version: 1
+        // URL prefix (/v1/...) is handled by FastEndpoints' built-in PrependToRoute.
+        o.ApiVersionReader = new HeaderApiVersionReader("X-Api-Version");
+    })
+    //.OpenApiDocument(o =>
+    //{
+    //    o.DocumentName = "v1";
+    //    o.Title = "TeleQ API";
+    //    o.Version = "v1";
+    //    o.MaxEndpointVersion = 1;
+    //    o.ShortSchemaNames = true;
+    //    o.EnableJWTBearerAuth = true;
+    //})
+    .AddOpenApi(options =>
+    {
+        options.AddScalarTransformers();
+        options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+        options.AddDocumentTransformer<AuthorizedOperationTransformer>();
+
+        options.AddDocumentTransformer(
+            (document, context, cancellationToken) =>
+            {
+                document.Info.Contact = new()
+                {
+                    Name = "TeleQ Support",
+                    Email = "info@teleq.com",
+                };
+                return Task.CompletedTask;
+            }
+        );
     });
 
 builder.AddNpgsqlDbContext<AppDbContext>("TeleQ-Db");
@@ -90,20 +126,9 @@ builder.Services.Configure<TelegramBotOptions>(
     builder.Configuration.GetSection(TelegramBotOptions.SectionName));
 builder.Services.AddHostedService<TelegramBotService>();
 
-
 WebApplication app = builder.Build();
 
 app.MapDefaultEndpoints();
-
-// ── EF Core schema bootstrap ──────────────────────────────────────────────
-// EnsureCreated is used instead of Migrations due to a design-time tooling
-// conflict between Marten's CodeAnalysis 4.x pin and EF tools requiring 5.x.
-// In development Aspire spins up a fresh Postgres container so this is safe.
-//await using (AsyncServiceScope scope = app.Services.CreateAsyncScope())
-//{
-//    AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-//    await db.Database.EnsureCreatedAsync();
-//}
 
 app.UseExceptionHandler(_ => { });
 app.UseStatusCodePages();
@@ -116,12 +141,42 @@ app.UseAuthorization();
 app.UseFastEndpoints(c =>
 {
     c.Versioning.Prefix = "v";
+    c.Versioning.DefaultVersion = 1;
     c.Versioning.PrependToRoute = true;
 });
 
 app.MapHub<QueueHub>("/hubs/queue");
 
-app.UseOpenApi(c => c.Path = "/openapi/{documentName}.json");
-app.MapScalarApiReference(o => o.AddDocument("v1"));
+app.MapOpenApi();
+app.MapScalarApiReference(options =>
+{
+    options
+        .WithTheme(ScalarTheme.Default)
+        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+        .AddAuthorizationCodeFlow(
+            OpenIdConnectDefaults.AuthenticationScheme,
+            x =>
+            {
+                x.AuthorizationUrl =
+                    "https://localhost:8081/realms/teleq/protocol/openid-connect/auth";
+                x.TokenUrl = "https://localhost:8081/realms/teleq/protocol/openid-connect/token";
+                x.Pkce = Pkce.Sha256;
+                x.RedirectUri = "https://localhost:7157/signin-oidc";
+                x.ClientId = "teleq-api";
+                x.ClientSecret = "UfIMrte6w4gRCt2PYGL6ywPDtr1xR9cB";
+                x.SelectedScopes = ["openid", "profile", "email", "offline_access"];
+            }
+        )
+        .AddPreferredSecuritySchemes(OpenIdConnectDefaults.AuthenticationScheme);
+
+    var descriptions = app.DescribeApiVersions();
+
+    for (var i = 0; i < descriptions.Count; i++)
+    {
+        var description = descriptions[i];
+        var isDefault = i == descriptions.Count - 1;
+        options.AddDocument(description.GroupName, description.GroupName, isDefault: isDefault);
+    }
+});
 
 await app.RunAsync();

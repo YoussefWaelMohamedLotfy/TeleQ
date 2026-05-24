@@ -14,6 +14,26 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ApiAccessTokenHandler>();
 builder.Services.AddScoped<HubConnectionFactory>();
 
+// Garnet (Redis-compatible) as L2 distributed cache — registered before HybridCache
+// so HybridCache automatically picks it up as its backing IDistributedCache.
+builder.AddRedisDistributedCache("garnet");
+
+// HybridCache: L1 in-memory + L2 Garnet. Keeps the auth ticket cookie tiny (GUID only).
+builder.Services.AddHybridCache();
+builder.Services.AddSingleton<ServerSideTicketStore>();
+
+// Wire the ticket store via Configure<T> so the singleton is properly injected
+// without triggering an early BuildServiceProvider() call.
+builder.Services
+    .AddOptions<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme)
+    .Configure<ServerSideTicketStore>((opts, store) =>
+    {
+        opts.Cookie.Name = "teleq.session";
+        opts.Cookie.HttpOnly = true;
+        opts.Cookie.SameSite = SameSiteMode.Lax;
+        opts.SessionStore = store;
+    });
+
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -34,19 +54,19 @@ builder.Services.AddAuthentication(options =>
         }
     });
 
-builder.Services.AddAuthorization(opts =>
-{
-    opts.AddPolicy("AdminOnly", p => p.RequireRole("admin"));
-    opts.AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"));
-});
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("AdminOnly", p => p.RequireRole("admin"))
+    .AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"));
 
 builder.Services.AddHttpClient<TeleQApiClient>(client =>
     {
-        client.BaseAddress = new Uri("http://api");
+        client.BaseAddress = new Uri("https+http://api");
     })
     .AddHttpMessageHandler<ApiAccessTokenHandler>();
 
 WebApplication app = builder.Build();
+
+app.MapDefaultEndpoints();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -82,8 +102,6 @@ app.MapGet("/Account/Login", (string? returnUrl) =>
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
-
-app.MapDefaultEndpoints();
 
 await app.RunAsync();
 return;

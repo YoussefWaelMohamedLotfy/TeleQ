@@ -2,6 +2,11 @@ IDistributedApplicationBuilder builder = DistributedApplication.CreateBuilder(ar
 
 var adminPassword = builder.AddParameter("Password", secret: true);
 
+var garnet = builder
+    .AddGarnet("garnet", 6379, adminPassword)
+    .WithImage("microsoft/garnet-alpine")
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var postgres = builder
     .AddPostgres("postgres", password: adminPassword, port: 5432)
     .WithImageTag("alpine")
@@ -24,8 +29,10 @@ var api = builder
     .AddProject<Projects.TeleQ_Api>("api")
     .WithReference(teleqDb)
     .WithReference(keycloak)
+    .WithReference(garnet)
     .WaitFor(teleqDb)
-    .WaitFor(keycloak);
+    .WaitFor(keycloak)
+    .WaitFor(garnet);
 
 var apiMigrations = api.AddEFMigrations("api-migrations", "TeleQ.Api.Data.AppDbContext")
     .WaitFor(teleqDb)
@@ -39,6 +46,8 @@ _ = builder
     .AddProject<Projects.TeleQ_Web>("blazor")
     .WithReference(api)
     .WithReference(keycloak)
-    .WaitFor(api);
+    .WithReference(garnet)
+    .WaitFor(api)
+    .WaitFor(garnet);
 
 await builder.Build().RunAsync();

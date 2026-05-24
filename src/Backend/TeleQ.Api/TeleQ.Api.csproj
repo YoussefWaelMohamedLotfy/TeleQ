@@ -3,7 +3,9 @@
 		<PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
 		<PackageReference Include="Aspire.Keycloak.Authentication" />
 		<PackageReference Include="FastEndpoints" />
-		<PackageReference Include="FastEndpoints.Swagger" />
+		<PackageReference Include="FastEndpoints.AspVersioning" />
+		<PackageReference Include="FastEndpoints.OpenApi" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" />
 		<PackageReference Include="FluentValidation" />
 		<PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
 		<PackageReference Include="Marten" />
@@ -22,7 +24,6 @@
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="Scalar.AspNetCore" />
 		<PackageReference Include="Scalar.AspNetCore.Microsoft" />
 		<PackageReference Include="Telegram.Bot" />
 	</ItemGroup>

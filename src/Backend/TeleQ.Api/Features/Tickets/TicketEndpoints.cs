@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,7 @@ public sealed class IssueWalkInTicketEndpoint(
         Post("/tickets/walkin");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(IssueWalkInTicketRequest req, CancellationToken ct)
@@ -114,6 +116,7 @@ public sealed class BookAppointmentEndpoint(
         Post("/tickets/appointment");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(BookAppointmentRequest req, CancellationToken ct)
@@ -190,6 +193,7 @@ public sealed class GetTicketEndpoint(IDocumentSession session) : EndpointWithou
         Get("/tickets/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -216,6 +220,7 @@ public sealed class CancelTicketEndpoint(
         Patch("/tickets/{id:guid}/cancel");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancelTicketRequest req, CancellationToken ct)
@@ -268,6 +273,7 @@ public sealed class RescheduleTicketEndpoint(
         Patch("/tickets/{id:guid}/reschedule");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(RescheduleTicketRequest req, CancellationToken ct)

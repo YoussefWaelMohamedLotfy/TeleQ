@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
 using TeleQ.Api.Data.Entities;
@@ -31,6 +32,7 @@ public sealed class GetServicesEndpoint(AppDbContext db) : EndpointWithoutReques
         Get("/branches/{branchId:guid}/services");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -55,6 +57,7 @@ public sealed class GetServiceEndpoint(AppDbContext db) : EndpointWithoutRequest
         Get("/services/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -82,6 +85,7 @@ public sealed class CreateServiceEndpoint(AppDbContext db) : Endpoint<CreateServ
         Post("/branches/{branchId:guid}/services");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CreateServiceRequest req, CancellationToken ct)
@@ -131,6 +135,7 @@ public sealed class UpdateServiceEndpoint(AppDbContext db) : Endpoint<UpdateServ
         Put("/services/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(UpdateServiceRequest req, CancellationToken ct)
@@ -158,6 +163,7 @@ public sealed class DeactivateServiceEndpoint(AppDbContext db) : EndpointWithout
         Delete("/services/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)

@@ -1,4 +1,5 @@
 using FastEndpoints;
+using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -40,6 +41,7 @@ public sealed class GetQueueEndpoint(IDocumentSession session, AppDbContext db)
         Get("/queue/{branchId:guid}/{serviceId:guid}");
         Version(1);
         Policies("AnyStaff");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -106,6 +108,7 @@ public sealed class GetMyQueuePositionEndpoint(IDocumentSession session, AppDbCo
         Version(1);
         AllowAnonymous();
         Description(d => d.WithSummary("Get position and estimated wait for a specific ticket"));
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -145,6 +148,7 @@ public sealed class CallNextTicketEndpoint(
         Post("/queue/call-next");
         Version(1);
         Policies("ClerkOrAdmin");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CallNextRequest req, CancellationToken ct)
@@ -208,6 +212,7 @@ public sealed class ServeTicketEndpoint(
         Post("/queue/tickets/{id:guid}/serve");
         Version(1);
         Policies("ClerkOrAdmin");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
@@ -256,6 +261,7 @@ public sealed class NoShowTicketEndpoint(
         Post("/queue/tickets/{id:guid}/no-show");
         Version(1);
         Policies("ClerkOrAdmin");
+        Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CancellationToken ct)
