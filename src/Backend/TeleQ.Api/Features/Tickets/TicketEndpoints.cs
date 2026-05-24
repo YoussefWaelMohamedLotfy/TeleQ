@@ -11,8 +11,6 @@ using TeleQ.Api.Features.Notifications;
 
 namespace TeleQ.Api.Features.Tickets;
 
-// ── Shared DTOs ───────────────────────────────────────────────────────────
-
 public sealed record TicketResponse(
     Guid Id,
     string TicketNumber,
@@ -27,31 +25,24 @@ public sealed record TicketResponse(
     string? CounterLabel,
     DateTimeOffset IssuedAt);
 
-public static class TicketMapper
-{
-    public static TicketResponse ToResponse(this Ticket t) =>
-        new(t.Id, t.TicketNumber, t.Type.ToString(), t.Status.ToString(),
-            t.CustomerPhone, t.BranchId, t.ServiceId, t.TimeSlotId,
-            t.ScheduledAt, t.QueuePosition, t.CounterLabel, t.IssuedAt);
-}
-
-// ── POST /tickets/walkin ─────────────────────────────────────────────────
-
 public sealed record IssueWalkInTicketRequest(
     Guid BranchId,
     Guid ServiceId,
     string CustomerPhone);
 
+/// <summary>Issues a walk-in ticket, placing the customer in the queue immediately.</summary>
 public sealed class IssueWalkInTicketEndpoint(
     AppDbContext db,
     IDocumentSession session,
-    IHubContext<QueueHub> hub) : Endpoint<IssueWalkInTicketRequest, TicketResponse>
+    IHubContext<QueueHub> hub,
+    TicketMapper mapper) : Endpoint<IssueWalkInTicketRequest, TicketResponse>
 {
     public override void Configure()
     {
         Post("/tickets/walkin");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Tickets"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -65,7 +56,6 @@ public sealed class IssueWalkInTicketEndpoint(
             return;
         }
 
-        // Get current queue position from projection
         var queueId = $"{req.BranchId}:{req.ServiceId}";
         var queue = await session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
         var queuePosition = (queue?.NextQueueNumber ?? 1);
@@ -84,21 +74,17 @@ public sealed class IssueWalkInTicketEndpoint(
         session.Events.StartStream<Ticket>(ticketId, evt);
         await session.SaveChangesAsync(ct);
 
-        // Reload aggregate for response
         var ticket = await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct);
 
-        // Notify connected clients
         await hub.Clients.Group(QueueHub.GroupName(req.BranchId, req.ServiceId))
             .SendAsync("QueueUpdated", new { TicketNumber = ticketNumber, QueuePosition = queuePosition }, ct);
 
         await Send.CreatedAtAsync<GetTicketEndpoint>(
             new { id = ticketId },
-            ticket!.ToResponse(),
+            mapper.FromEntity(ticket!),
             cancellation: ct);
     }
 }
-
-// ── POST /tickets/appointment ─────────────────────────────────────────────
 
 public sealed record BookAppointmentRequest(
     Guid BranchId,
@@ -106,16 +92,19 @@ public sealed record BookAppointmentRequest(
     Guid TimeSlotId,
     string CustomerPhone);
 
+/// <summary>Books an appointment ticket for a future time slot.</summary>
 public sealed class BookAppointmentEndpoint(
     AppDbContext db,
     IDocumentSession session,
-    IHubContext<QueueHub> hub) : Endpoint<BookAppointmentRequest, TicketResponse>
+    IHubContext<QueueHub> hub,
+    TicketMapper mapper) : Endpoint<BookAppointmentRequest, TicketResponse>
 {
     public override void Configure()
     {
         Post("/tickets/appointment");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Tickets"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -137,7 +126,6 @@ public sealed class BookAppointmentEndpoint(
             return;
         }
 
-        // Calculate scheduled datetime: next occurrence of the slot's day/time
         var scheduledAt = SlotScheduler.NextOccurrence(slot);
 
         if (scheduledAt <= DateTimeOffset.UtcNow)
@@ -166,7 +154,6 @@ public sealed class BookAppointmentEndpoint(
 
         session.Events.StartStream<Ticket>(ticketId, evt);
 
-        // Increment slot booking count
         slot.BookedCount++;
 
         await db.SaveChangesAsync(ct);
@@ -179,20 +166,21 @@ public sealed class BookAppointmentEndpoint(
 
         await Send.CreatedAtAsync<GetTicketEndpoint>(
             new { id = ticketId },
-            ticket!.ToResponse(),
+            mapper.FromEntity(ticket!),
             cancellation: ct);
     }
 }
 
-// ── GET /tickets/{id} ────────────────────────────────────────────────────
-
-public sealed class GetTicketEndpoint(IDocumentSession session) : EndpointWithoutRequest<TicketResponse>
+/// <summary>Returns a ticket's current state by replaying its event stream.</summary>
+public sealed class GetTicketEndpoint(IDocumentSession session)
+    : EndpointWithoutRequest<TicketResponse, TicketMapper>
 {
     public override void Configure()
     {
         Get("/tickets/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Tickets"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -203,14 +191,13 @@ public sealed class GetTicketEndpoint(IDocumentSession session) : EndpointWithou
 
         if (ticket is null) { await Send.NotFoundAsync(ct); return; }
 
-        await Send.OkAsync(ticket.ToResponse(), ct);
+        await Send.OkAsync(Map.FromEntity(ticket), ct);
     }
 }
 
-// ── PATCH /tickets/{id}/cancel ────────────────────────────────────────────
-
 public sealed record CancelTicketRequest(string CustomerPhone);
 
+/// <summary>Cancels a waiting or called ticket. The customer must provide their phone number to confirm ownership.</summary>
 public sealed class CancelTicketEndpoint(
     IDocumentSession session,
     IHubContext<QueueHub> hub) : Endpoint<CancelTicketRequest>
@@ -220,6 +207,7 @@ public sealed class CancelTicketEndpoint(
         Patch("/tickets/{id:guid}/cancel");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Tickets"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -260,10 +248,9 @@ public sealed class CancelTicketEndpoint(
     }
 }
 
-// ── PATCH /tickets/{id}/reschedule ───────────────────────────────────────
-
 public sealed record RescheduleTicketRequest(string CustomerPhone, Guid NewTimeSlotId);
 
+/// <summary>Reschedules an appointment ticket to a new time slot. The customer must provide their phone number to confirm ownership.</summary>
 public sealed class RescheduleTicketEndpoint(
     AppDbContext db,
     IDocumentSession session) : Endpoint<RescheduleTicketRequest>
@@ -273,6 +260,7 @@ public sealed class RescheduleTicketEndpoint(
         Patch("/tickets/{id:guid}/reschedule");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Tickets"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -318,7 +306,6 @@ public sealed class RescheduleTicketEndpoint(
             return;
         }
 
-        // Release old slot capacity and book new slot
         if (ticket.TimeSlotId.HasValue)
         {
             var oldSlot = await db.TimeSlots.FindAsync([ticket.TimeSlotId.Value], ct);

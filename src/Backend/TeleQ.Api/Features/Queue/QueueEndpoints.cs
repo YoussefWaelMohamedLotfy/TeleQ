@@ -11,8 +11,6 @@ using TeleQ.Api.Features.Notifications;
 
 namespace TeleQ.Api.Features.Queue;
 
-// ── GET /queue/{branchId}/{serviceId} ─────────────────────────────────────
-
 public sealed record QueueResponse(
     Guid BranchId,
     Guid ServiceId,
@@ -33,6 +31,7 @@ public sealed record QueueEntryResponse(
     string Type,
     int EstimatedWaitMinutes);
 
+/// <summary>Returns the current live queue state for a specific branch and service combination.</summary>
 public sealed class GetQueueEndpoint(IDocumentSession session, AppDbContext db)
     : EndpointWithoutRequest<QueueResponse>
 {
@@ -41,6 +40,7 @@ public sealed class GetQueueEndpoint(IDocumentSession session, AppDbContext db)
         Get("/queue/{branchId:guid}/{serviceId:guid}");
         Version(1);
         Policies("AnyStaff");
+        Description(x => x.WithTags("Queue"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -89,8 +89,6 @@ public sealed class GetQueueEndpoint(IDocumentSession session, AppDbContext db)
     }
 }
 
-// ── GET /queue/my-position?phone=...&ticketId=... ─────────────────────────
-
 public sealed record MyPositionResponse(
     Guid TicketId,
     string TicketNumber,
@@ -99,6 +97,7 @@ public sealed record MyPositionResponse(
     int AheadCount,
     int EstimatedWaitMinutes);
 
+/// <summary>Returns the queue position and estimated wait time for a specific ticket.</summary>
 public sealed class GetMyQueuePositionEndpoint(IDocumentSession session, AppDbContext db)
     : EndpointWithoutRequest<MyPositionResponse>
 {
@@ -107,7 +106,7 @@ public sealed class GetMyQueuePositionEndpoint(IDocumentSession session, AppDbCo
         Get("/queue/my-position");
         Version(1);
         AllowAnonymous();
-        Description(d => d.WithSummary("Get position and estimated wait for a specific ticket"));
+        Description(d => d.WithTags("Queue").WithSummary("Get position and estimated wait for a specific ticket"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -135,10 +134,16 @@ public sealed class GetMyQueuePositionEndpoint(IDocumentSession session, AppDbCo
     }
 }
 
-// ── POST /queue/call-next (Clerk only) ───────────────────────────────────
-
 public sealed record CallNextRequest(Guid BranchId, Guid ServiceId);
 
+public sealed record CallNextResponse(
+    Guid TicketId,
+    string TicketNumber,
+    string CustomerPhone,
+    string CounterLabel,
+    DateTimeOffset CalledAt);
+
+/// <summary>Calls the next waiting ticket in the queue for the specified service. Restricted to Clerk and Admin users.</summary>
 public sealed class CallNextTicketEndpoint(
     IDocumentSession session,
     IHubContext<QueueHub> hub) : Endpoint<CallNextRequest, CallNextResponse>
@@ -148,6 +153,7 @@ public sealed class CallNextTicketEndpoint(
         Post("/queue/call-next");
         Version(1);
         Policies("ClerkOrAdmin");
+        Description(x => x.WithTags("Queue"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -186,7 +192,6 @@ public sealed class CallNextTicketEndpoint(
             next.TicketId, next.TicketNumber, next.CustomerPhone,
             counterLabel, DateTimeOffset.UtcNow);
 
-        // Notify queue group
         await hub.Clients.Group(QueueHub.GroupName(req.BranchId, req.ServiceId))
             .SendAsync("TicketCalled", response, ct);
 
@@ -194,15 +199,7 @@ public sealed class CallNextTicketEndpoint(
     }
 }
 
-public sealed record CallNextResponse(
-    Guid TicketId,
-    string TicketNumber,
-    string CustomerPhone,
-    string CounterLabel,
-    DateTimeOffset CalledAt);
-
-// ── POST /queue/tickets/{id}/serve (Clerk only) ───────────────────────────
-
+/// <summary>Marks a called ticket as served, completing the service transaction. Restricted to Clerk and Admin users.</summary>
 public sealed class ServeTicketEndpoint(
     IDocumentSession session,
     IHubContext<QueueHub> hub) : EndpointWithoutRequest
@@ -212,6 +209,7 @@ public sealed class ServeTicketEndpoint(
         Post("/queue/tickets/{id:guid}/serve");
         Version(1);
         Policies("ClerkOrAdmin");
+        Description(x => x.WithTags("Queue"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -250,8 +248,7 @@ public sealed class ServeTicketEndpoint(
     }
 }
 
-// ── POST /queue/tickets/{id}/no-show (Clerk only) ─────────────────────────
-
+/// <summary>Marks a waiting or called ticket as no-show. Restricted to Clerk and Admin users.</summary>
 public sealed class NoShowTicketEndpoint(
     IDocumentSession session,
     IHubContext<QueueHub> hub) : EndpointWithoutRequest
@@ -261,6 +258,7 @@ public sealed class NoShowTicketEndpoint(
         Post("/queue/tickets/{id:guid}/no-show");
         Version(1);
         Policies("ClerkOrAdmin");
+        Description(x => x.WithTags("Queue"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 

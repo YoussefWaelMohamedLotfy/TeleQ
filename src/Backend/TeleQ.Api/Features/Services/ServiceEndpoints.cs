@@ -2,11 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
-using TeleQ.Api.Data.Entities;
 
 namespace TeleQ.Api.Features.Services;
-
-// ── Shared DTOs ───────────────────────────────────────────────────────────
 
 public sealed record ServiceResponse(
     Guid Id,
@@ -17,21 +14,26 @@ public sealed record ServiceResponse(
     bool IsActive,
     DateTimeOffset CreatedAt);
 
-public static class ServiceMapper
-{
-    public static ServiceResponse ToResponse(this Service s) =>
-        new(s.Id, s.BranchId, s.Name, s.Description, s.EstimatedDurationMinutes, s.IsActive, s.CreatedAt);
-}
+public sealed record CreateServiceRequest(
+    string Name,
+    string? Description,
+    int EstimatedDurationMinutes);
 
-// ── GET /branches/{branchId}/services ─────────────────────────────────────
+public sealed record UpdateServiceRequest(
+    string Name,
+    string? Description,
+    int EstimatedDurationMinutes);
 
-public sealed class GetServicesEndpoint(AppDbContext db) : EndpointWithoutRequest<List<ServiceResponse>>
+/// <summary>Returns all active services for a branch, ordered by name.</summary>
+public sealed class GetServicesEndpoint(AppDbContext db, ServiceMapper mapper)
+    : EndpointWithoutRequest<List<ServiceResponse>>
 {
     public override void Configure()
     {
         Get("/branches/{branchId:guid}/services");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Services"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -44,19 +46,20 @@ public sealed class GetServicesEndpoint(AppDbContext db) : EndpointWithoutReques
             .OrderBy(s => s.Name)
             .ToListAsync(ct);
 
-        await Send.OkAsync(services.Select(s => s.ToResponse()).ToList(), ct);
+        await Send.OkAsync(services.Select(mapper.FromEntity).ToList(), ct);
     }
 }
 
-// ── GET /services/{id} ────────────────────────────────────────────────────
-
-public sealed class GetServiceEndpoint(AppDbContext db) : EndpointWithoutRequest<ServiceResponse>
+/// <summary>Returns a single service by its identifier.</summary>
+public sealed class GetServiceEndpoint(AppDbContext db)
+    : EndpointWithoutRequest<ServiceResponse, ServiceMapper>
 {
     public override void Configure()
     {
         Get("/services/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Services"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -67,24 +70,20 @@ public sealed class GetServiceEndpoint(AppDbContext db) : EndpointWithoutRequest
 
         if (service is null) { await Send.NotFoundAsync(ct); return; }
 
-        await Send.OkAsync(service.ToResponse(), ct);
+        await Send.OkAsync(Map.FromEntity(service), ct);
     }
 }
 
-// ── POST /branches/{branchId}/services (Admin only) ───────────────────────
-
-public sealed record CreateServiceRequest(
-    string Name,
-    string? Description,
-    int EstimatedDurationMinutes);
-
-public sealed class CreateServiceEndpoint(AppDbContext db) : Endpoint<CreateServiceRequest, ServiceResponse>
+/// <summary>Creates a new service under a branch. Restricted to Admin users.</summary>
+public sealed class CreateServiceEndpoint(AppDbContext db)
+    : Endpoint<CreateServiceRequest, ServiceResponse, ServiceMapper>
 {
     public override void Configure()
     {
         Post("/branches/{branchId:guid}/services");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Services"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -100,34 +99,20 @@ public sealed class CreateServiceEndpoint(AppDbContext db) : Endpoint<CreateServ
             return;
         }
 
-        var service = new Service
-        {
-            Id = Guid.NewGuid(),
-            BranchId = branchId,
-            Name = req.Name,
-            Description = req.Description,
-            EstimatedDurationMinutes = req.EstimatedDurationMinutes,
-            IsActive = true,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
+        var service = Map.ToEntity(req);
+        service.BranchId = branchId;
 
         db.Services.Add(service);
         await db.SaveChangesAsync(ct);
 
         await Send.CreatedAtAsync<GetServiceEndpoint>(
             new { id = service.Id },
-            service.ToResponse(),
+            Map.FromEntity(service),
             cancellation: ct);
     }
 }
 
-// ── PUT /services/{id} (Admin only) ──────────────────────────────────────
-
-public sealed record UpdateServiceRequest(
-    string Name,
-    string? Description,
-    int EstimatedDurationMinutes);
-
+/// <summary>Updates an existing service's details. Restricted to Admin users.</summary>
 public sealed class UpdateServiceEndpoint(AppDbContext db) : Endpoint<UpdateServiceRequest>
 {
     public override void Configure()
@@ -135,6 +120,7 @@ public sealed class UpdateServiceEndpoint(AppDbContext db) : Endpoint<UpdateServ
         Put("/services/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Services"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -154,8 +140,7 @@ public sealed class UpdateServiceEndpoint(AppDbContext db) : Endpoint<UpdateServ
     }
 }
 
-// ── DELETE /services/{id} (Admin only — soft delete) ─────────────────────
-
+/// <summary>Soft-deletes (deactivates) a service. Restricted to Admin users.</summary>
 public sealed class DeactivateServiceEndpoint(AppDbContext db) : EndpointWithoutRequest
 {
     public override void Configure()
@@ -163,6 +148,7 @@ public sealed class DeactivateServiceEndpoint(AppDbContext db) : EndpointWithout
         Delete("/services/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Services"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 

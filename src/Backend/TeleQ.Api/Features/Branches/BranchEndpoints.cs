@@ -2,11 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
-using TeleQ.Api.Data.Entities;
 
 namespace TeleQ.Api.Features.Branches;
-
-// ── Shared DTOs ───────────────────────────────────────────────────────────
 
 public sealed record BranchResponse(
     Guid Id,
@@ -16,21 +13,20 @@ public sealed record BranchResponse(
     bool IsActive,
     DateTimeOffset CreatedAt);
 
-public static class BranchMapper
-{
-    public static BranchResponse ToResponse(this Branch b) =>
-        new(b.Id, b.Name, b.Address, b.PhoneNumber, b.IsActive, b.CreatedAt);
-}
+public sealed record CreateBranchRequest(string Name, string Address, string? PhoneNumber);
 
-// ── GET /branches ─────────────────────────────────────────────────────────
+public sealed record UpdateBranchRequest(string Name, string Address, string? PhoneNumber);
 
-public sealed class GetBranchesEndpoint(AppDbContext db) : EndpointWithoutRequest<List<BranchResponse>>
+/// <summary>Returns all active branches ordered by name.</summary>
+public sealed class GetBranchesEndpoint(AppDbContext db, BranchMapper mapper)
+    : EndpointWithoutRequest<List<BranchResponse>>
 {
     public override void Configure()
     {
         Get("/branches");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Branches"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -41,19 +37,20 @@ public sealed class GetBranchesEndpoint(AppDbContext db) : EndpointWithoutReques
             .OrderBy(b => b.Name)
             .ToListAsync(ct);
 
-        await Send.OkAsync(branches.Select(b => b.ToResponse()).ToList(), ct);
+        await Send.OkAsync(branches.Select(mapper.FromEntity).ToList(), ct);
     }
 }
 
-// ── GET /branches/{id} ────────────────────────────────────────────────────
-
-public sealed class GetBranchEndpoint(AppDbContext db) : EndpointWithoutRequest<BranchResponse>
+/// <summary>Returns a single branch by its identifier.</summary>
+public sealed class GetBranchEndpoint(AppDbContext db)
+    : EndpointWithoutRequest<BranchResponse, BranchMapper>
 {
     public override void Configure()
     {
         Get("/branches/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Branches"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -68,50 +65,37 @@ public sealed class GetBranchEndpoint(AppDbContext db) : EndpointWithoutRequest<
             return;
         }
 
-        await Send.OkAsync(branch.ToResponse(), ct);
+        await Send.OkAsync(Map.FromEntity(branch), ct);
     }
 }
 
-// ── POST /branches (Admin only) ───────────────────────────────────────────
-
-public sealed record CreateBranchRequest(string Name, string Address, string? PhoneNumber);
-
-public sealed class CreateBranchEndpoint(AppDbContext db) : Endpoint<CreateBranchRequest, BranchResponse>
+/// <summary>Creates a new branch. Restricted to Admin users.</summary>
+public sealed class CreateBranchEndpoint(AppDbContext db)
+    : Endpoint<CreateBranchRequest, BranchResponse, BranchMapper>
 {
     public override void Configure()
     {
         Post("/branches");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Branches"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
     public override async Task HandleAsync(CreateBranchRequest req, CancellationToken ct)
     {
-        var branch = new Branch
-        {
-            Id = Guid.NewGuid(),
-            Name = req.Name,
-            Address = req.Address,
-            PhoneNumber = req.PhoneNumber,
-            IsActive = true,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
-
+        var branch = Map.ToEntity(req);
         db.Branches.Add(branch);
         await db.SaveChangesAsync(ct);
 
         await Send.CreatedAtAsync<GetBranchEndpoint>(
             new { id = branch.Id },
-            branch.ToResponse(),
+            Map.FromEntity(branch),
             cancellation: ct);
     }
 }
 
-// ── PUT /branches/{id} (Admin only) ──────────────────────────────────────
-
-public sealed record UpdateBranchRequest(string Name, string Address, string? PhoneNumber);
-
+/// <summary>Updates an existing branch's details. Restricted to Admin users.</summary>
 public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranchRequest>
 {
     public override void Configure()
@@ -119,6 +103,7 @@ public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranc
         Put("/branches/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Branches"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -142,8 +127,7 @@ public sealed class UpdateBranchEndpoint(AppDbContext db) : Endpoint<UpdateBranc
     }
 }
 
-// ── DELETE /branches/{id} (Admin only — soft delete) ─────────────────────
-
+/// <summary>Soft-deletes (deactivates) a branch. Restricted to Admin users.</summary>
 public sealed class DeactivateBranchEndpoint(AppDbContext db) : EndpointWithoutRequest
 {
     public override void Configure()
@@ -151,6 +135,7 @@ public sealed class DeactivateBranchEndpoint(AppDbContext db) : EndpointWithoutR
         Delete("/branches/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Branches"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 

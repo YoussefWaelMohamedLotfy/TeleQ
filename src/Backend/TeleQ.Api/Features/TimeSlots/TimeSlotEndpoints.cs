@@ -2,11 +2,8 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Microsoft.EntityFrameworkCore;
 using TeleQ.Api.Data;
-using TeleQ.Api.Data.Entities;
 
 namespace TeleQ.Api.Features.TimeSlots;
-
-// ── Shared DTOs ───────────────────────────────────────────────────────────
 
 public sealed record TimeSlotResponse(
     Guid Id,
@@ -22,23 +19,25 @@ public sealed record TimeSlotResponse(
     DateOnly? Date,
     bool IsActive);
 
-public static class TimeSlotMapper
-{
-    public static TimeSlotResponse ToResponse(this TimeSlot ts) =>
-        new(ts.Id, ts.ServiceId, ts.BranchId, ts.StartTime, ts.EndTime,
-            ts.Capacity, ts.BookedCount, ts.Capacity - ts.BookedCount,
-            ts.IsRecurring, ts.DayOfWeek, ts.Date, ts.IsActive);
-}
+public sealed record CreateTimeSlotRequest(
+    Guid BranchId,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    int Capacity,
+    bool IsRecurring,
+    DayOfWeek? DayOfWeek,
+    DateOnly? Date);
 
-// ── GET /services/{serviceId}/timeslots ───────────────────────────────────
-
-public sealed class GetTimeSlotsEndpoint(AppDbContext db) : EndpointWithoutRequest<List<TimeSlotResponse>>
+/// <summary>Returns all active time slots for a service, ordered by day and start time.</summary>
+public sealed class GetTimeSlotsEndpoint(AppDbContext db, TimeSlotMapper mapper)
+    : EndpointWithoutRequest<List<TimeSlotResponse>>
 {
     public override void Configure()
     {
         Get("/services/{serviceId:guid}/timeslots");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Time Slots"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -52,19 +51,20 @@ public sealed class GetTimeSlotsEndpoint(AppDbContext db) : EndpointWithoutReque
             .ThenBy(ts => ts.StartTime)
             .ToListAsync(ct);
 
-        await Send.OkAsync(slots.Select(ts => ts.ToResponse()).ToList(), ct);
+        await Send.OkAsync(slots.Select(mapper.FromEntity).ToList(), ct);
     }
 }
 
-// ── GET /timeslots/{id} ───────────────────────────────────────────────────
-
-public sealed class GetTimeSlotEndpoint(AppDbContext db) : EndpointWithoutRequest<TimeSlotResponse>
+/// <summary>Returns a single time slot by its identifier.</summary>
+public sealed class GetTimeSlotEndpoint(AppDbContext db)
+    : EndpointWithoutRequest<TimeSlotResponse, TimeSlotMapper>
 {
     public override void Configure()
     {
         Get("/timeslots/{id:guid}");
         Version(1);
         AllowAnonymous();
+        Description(x => x.WithTags("Time Slots"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -75,28 +75,20 @@ public sealed class GetTimeSlotEndpoint(AppDbContext db) : EndpointWithoutReques
 
         if (slot is null) { await Send.NotFoundAsync(ct); return; }
 
-        await Send.OkAsync(slot.ToResponse(), ct);
+        await Send.OkAsync(Map.FromEntity(slot), ct);
     }
 }
 
-// ── POST /services/{serviceId}/timeslots (Admin only) ─────────────────────
-
-public sealed record CreateTimeSlotRequest(
-    Guid BranchId,
-    TimeOnly StartTime,
-    TimeOnly EndTime,
-    int Capacity,
-    bool IsRecurring,
-    DayOfWeek? DayOfWeek,
-    DateOnly? Date);
-
-public sealed class CreateTimeSlotEndpoint(AppDbContext db) : Endpoint<CreateTimeSlotRequest, TimeSlotResponse>
+/// <summary>Creates a new time slot for a service. Restricted to Admin users.</summary>
+public sealed class CreateTimeSlotEndpoint(AppDbContext db)
+    : Endpoint<CreateTimeSlotRequest, TimeSlotResponse, TimeSlotMapper>
 {
     public override void Configure()
     {
         Post("/services/{serviceId:guid}/timeslots");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Time Slots"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -126,33 +118,20 @@ public sealed class CreateTimeSlotEndpoint(AppDbContext db) : Endpoint<CreateTim
             return;
         }
 
-        var slot = new TimeSlot
-        {
-            Id = Guid.NewGuid(),
-            ServiceId = serviceId,
-            BranchId = req.BranchId,
-            StartTime = req.StartTime,
-            EndTime = req.EndTime,
-            Capacity = req.Capacity,
-            IsRecurring = req.IsRecurring,
-            DayOfWeek = req.DayOfWeek,
-            Date = req.Date,
-            IsActive = true,
-            CreatedAt = DateTimeOffset.UtcNow
-        };
+        var slot = Map.ToEntity(req);
+        slot.ServiceId = serviceId;
 
         db.TimeSlots.Add(slot);
         await db.SaveChangesAsync(ct);
 
         await Send.CreatedAtAsync<GetTimeSlotEndpoint>(
             new { id = slot.Id },
-            slot.ToResponse(),
+            Map.FromEntity(slot),
             cancellation: ct);
     }
 }
 
-// ── DELETE /timeslots/{id} (Admin only) ───────────────────────────────────
-
+/// <summary>Soft-deletes (deactivates) a time slot. Restricted to Admin users.</summary>
 public sealed class DeleteTimeSlotEndpoint(AppDbContext db) : EndpointWithoutRequest
 {
     public override void Configure()
@@ -160,6 +139,7 @@ public sealed class DeleteTimeSlotEndpoint(AppDbContext db) : EndpointWithoutReq
         Delete("/timeslots/{id:guid}");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Time Slots"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 

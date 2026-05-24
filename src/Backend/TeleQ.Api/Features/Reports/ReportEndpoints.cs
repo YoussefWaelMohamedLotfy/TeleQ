@@ -5,14 +5,13 @@ using TeleQ.Api.Common.Projections;
 
 namespace TeleQ.Api.Features.Reports;
 
-// ── GET /reports/tickets/{id}/events (Admin only) ─────────────────────────
-
 public sealed record TicketEventEntry(
     string EventType,
     object Data,
     DateTimeOffset Timestamp,
     long Version);
 
+/// <summary>Returns the full event log for a ticket's lifecycle. Restricted to Admin users.</summary>
 public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
     : EndpointWithoutRequest<List<TicketEventEntry>>
 {
@@ -21,6 +20,7 @@ public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
         Get("/reports/tickets/{id:guid}/events");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Reports"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -47,8 +47,7 @@ public sealed class GetTicketEventLogEndpoint(IDocumentSession session)
     }
 }
 
-// ── GET /reports/daily-stats?branchId=...&serviceId=...&date=... (Admin only) ──
-
+/// <summary>Returns aggregated queue statistics for a specific branch, service, and date. Restricted to Admin users.</summary>
 public sealed class GetDailyStatsEndpoint(IDocumentSession session)
     : EndpointWithoutRequest<DailyQueueStats>
 {
@@ -57,6 +56,7 @@ public sealed class GetDailyStatsEndpoint(IDocumentSession session)
         Get("/reports/daily-stats");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Reports"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
@@ -71,7 +71,6 @@ public sealed class GetDailyStatsEndpoint(IDocumentSession session)
 
         if (stats is null)
         {
-            // Return empty stats for the requested day
             await Send.OkAsync(new DailyQueueStats
             {
                 Id = statsId,
@@ -86,8 +85,7 @@ public sealed class GetDailyStatsEndpoint(IDocumentSession session)
     }
 }
 
-// ── GET /reports/daily-stats/range (Admin only) ──────────────────────────
-
+/// <summary>Returns daily queue statistics across a date range for a branch and service. Restricted to Admin users.</summary>
 public sealed class GetDailyStatsRangeEndpoint(IDocumentSession session)
     : EndpointWithoutRequest<List<DailyQueueStats>>
 {
@@ -96,6 +94,7 @@ public sealed class GetDailyStatsRangeEndpoint(IDocumentSession session)
         Get("/reports/daily-stats/range");
         Version(1);
         Policies("AdminOnly");
+        Description(x => x.WithTags("Reports"));
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
