@@ -13,7 +13,11 @@ using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
+using TeleQ.Api.Features.Branches;
 using TeleQ.Api.Features.Notifications;
+using TeleQ.Api.Features.Services;
+using TeleQ.Api.Features.Tickets;
+using TeleQ.Api.Features.TimeSlots;
 using TeleQ.Api.OpenAPI;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -29,6 +33,13 @@ builder.AddServiceDefaults();
 builder.WebHost.ConfigureKestrel(x => x.AddServerHeader = false);
 
 builder.Services.AddProblemDetails();
+
+// Mappers constructor-injected into list endpoints must be registered explicitly,
+// as FastEndpoints only auto-registers mappers used as generic type parameters.
+builder.Services.AddSingleton<BranchMapper>();
+builder.Services.AddSingleton<ServiceMapper>();
+builder.Services.AddSingleton<TimeSlotMapper>();
+builder.Services.AddSingleton<TicketMapper>();
 
 builder.Services.AddFastEndpoints()
     .AddVersioning(o =>

@@ -8,9 +8,11 @@ public sealed class ApiAccessTokenHandler(IHttpContextAccessor httpContextAccess
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         HttpContext? httpContext = httpContextAccessor.HttpContext;
+        
         if (httpContext is not null)
         {
             string? accessToken = await httpContext.GetTokenAsync("access_token");
+            
             if (!string.IsNullOrWhiteSpace(accessToken))
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
