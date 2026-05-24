@@ -10,7 +10,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
+using Telegram.Bot;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
@@ -138,6 +140,17 @@ builder.Services.AddMediator();
 
 builder.Services.Configure<TelegramBotOptions>(
     builder.Configuration.GetSection(TelegramBotOptions.SectionName));
+
+// Register the bot client as a singleton so both the hosted service and the
+// webhook endpoint share the same authenticated client instance.
+builder.Services.AddSingleton<ITelegramBotClient>(sp =>
+{
+    var opts = sp.GetRequiredService<IOptions<TelegramBotOptions>>().Value;
+    return new TelegramBotClient(opts.BotToken);
+});
+
+// Singleton handler maintains per-chat conversation state across all updates.
+builder.Services.AddSingleton<TelegramUpdateHandler>();
 builder.Services.AddHostedService<TelegramBotService>();
 
 WebApplication app = builder.Build();

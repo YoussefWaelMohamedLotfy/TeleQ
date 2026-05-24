@@ -1,0 +1,956 @@
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
+using IDocumentSession = Marten.IDocumentSession;
+using IQuerySession = Marten.IQuerySession;
+using Microsoft.EntityFrameworkCore;
+using TeleQ.Api.Common.Aggregates;
+using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Api.Common.Projections;
+using TeleQ.Api.Data;
+using TeleQ.Api.Data.Entities;
+using TeleQ.Api.Features.Tickets;
+using Telegram.Bot;
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
+
+namespace TeleQ.Api.Features.Notifications;
+
+/// <summary>
+/// Stateful singleton that processes every Telegram <see cref="Update"/>.
+/// Used by both the long-polling <see cref="TelegramBotService"/> and the
+/// webhook <see cref="TelegramWebhookEndpoint"/>.
+/// </summary>
+public sealed class TelegramUpdateHandler(
+    ILogger<TelegramUpdateHandler> logger,
+    IServiceScopeFactory scopeFactory) : IUpdateHandler
+{
+    private static readonly Regex PhoneRegex = new("^\\+?\\d{8,15}$", RegexOptions.Compiled);
+
+    private readonly ConcurrentDictionary<long, ChatContext> _chatContexts = new();
+
+    // ── IUpdateHandler implementation ──────────────────────────────────────
+
+    public async Task HandleUpdateAsync(ITelegramBotClient client, Update update, CancellationToken ct)
+    {
+        try
+        {
+            switch (update)
+            {
+                case { Message: not null }:
+                    await HandleMessageAsync(client, update.Message, ct);
+                    break;
+                case { CallbackQuery: not null }:
+                    await HandleCallbackQueryAsync(client, update.CallbackQuery, ct);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Telegram update handling failed for update {UpdateId}", update.Id);
+
+            var chatId = update.Message?.Chat.Id ?? update.CallbackQuery?.Message?.Chat.Id;
+            if (chatId.HasValue)
+            {
+                await SafeSendMessageAsync(client, chatId.Value,
+                    ex is InvalidOperationException ? ex.Message : "Sorry, something went wrong. Please try again.", ct);
+            }
+
+            if (update.CallbackQuery is not null)
+            {
+                await SafeAnswerCallbackAsync(client, update.CallbackQuery.Id, ct);
+            }
+        }
+    }
+
+    public Task HandleErrorAsync(ITelegramBotClient client, Exception exception, HandleErrorSource source, CancellationToken ct)
+    {
+        logger.LogError(exception, "Telegram Bot polling error");
+        return Task.CompletedTask;
+    }
+
+    // ── Proactive push ─────────────────────────────────────────────────────
+
+    /// <summary>Sends a proactive message to a customer's Telegram chat.</summary>
+    public async Task SendNotificationAsync(ITelegramBotClient client, long chatId, string message, CancellationToken ct = default)
+    {
+        await client.SendMessage(chatId, message, cancellationToken: ct);
+    }
+
+    // ── Message routing ────────────────────────────────────────────────────
+
+    private async Task HandleMessageAsync(ITelegramBotClient client, Message message, CancellationToken ct)
+    {
+        var chatId = message.Chat.Id;
+        await TouchCustomerActivityAsync(chatId, ct);
+
+        var payload = message.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(payload) && string.IsNullOrWhiteSpace(message.Contact?.PhoneNumber))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload) && payload.StartsWith('/'))
+        {
+            var command = payload.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant().TrimStart('/');
+            logger.LogDebug("Telegram command '{Command}' from chat {ChatId}", command, chatId);
+
+            switch (command)
+            {
+                case "start":
+                    ClearContext(chatId);
+                    await HandleStartAsync(client, message, ct);
+                    return;
+                case "book":
+                    await HandleBookAsync(client, chatId, ct);
+                    return;
+                case "appointment":
+                    await HandleAppointmentAsync(client, chatId, ct);
+                    return;
+                case "status":
+                    await HandleStatusAsync(client, chatId, ct);
+                    return;
+                case "cancel":
+                    await HandleCancelAsync(client, chatId, ct);
+                    return;
+                case "help":
+                    ClearContext(chatId);
+                    await client.SendMessage(chatId, GetHelpText(), cancellationToken: ct);
+                    return;
+                default:
+                    await client.SendMessage(chatId, "Unknown command. Type /help for available commands.", cancellationToken: ct);
+                    return;
+            }
+        }
+
+        var context = GetContext(chatId);
+        if (context.Step == ConversationStep.AwaitingPhoneNumber)
+        {
+            await HandlePhoneNumberAsync(client, message, context, ct);
+            return;
+        }
+
+        if (context.Step != ConversationStep.Idle)
+        {
+            await client.SendMessage(chatId, "Please use the buttons above to continue, or send /help to start over.", cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleCallbackQueryAsync(ITelegramBotClient client, CallbackQuery callbackQuery, CancellationToken ct)
+    {
+        await SafeAnswerCallbackAsync(client, callbackQuery.Id, ct);
+
+        var chatId = callbackQuery.Message?.Chat.Id;
+        if (!chatId.HasValue || string.IsNullOrWhiteSpace(callbackQuery.Data))
+        {
+            return;
+        }
+
+        await TouchCustomerActivityAsync(chatId.Value, ct);
+
+        var separatorIndex = callbackQuery.Data.IndexOf(':');
+        if (separatorIndex <= 0 || separatorIndex == callbackQuery.Data.Length - 1)
+        {
+            throw new InvalidOperationException("That action is no longer valid. Please start again.");
+        }
+
+        var action = callbackQuery.Data[..separatorIndex];
+        var idPart = callbackQuery.Data[(separatorIndex + 1)..];
+
+        if (!Guid.TryParse(idPart, out var entityId))
+        {
+            throw new InvalidOperationException("That selection is invalid. Please try again.");
+        }
+
+        switch (action)
+        {
+            case "branch_book":
+                await HandleBranchSelectionAsync(client, callbackQuery, entityId, isAppointment: false, ct);
+                break;
+            case "service_book":
+                await HandleServiceSelectionForBookingAsync(client, callbackQuery, entityId, ct);
+                break;
+            case "branch_apt":
+                await HandleBranchSelectionAsync(client, callbackQuery, entityId, isAppointment: true, ct);
+                break;
+            case "service_apt":
+                await HandleServiceSelectionForAppointmentAsync(client, callbackQuery, entityId, ct);
+                break;
+            case "slot_apt":
+                await HandleSlotSelectionAsync(client, callbackQuery, entityId, ct);
+                break;
+            default:
+                throw new InvalidOperationException("That action is not supported. Please start again.");
+        }
+    }
+
+    // ── Command handlers ───────────────────────────────────────────────────
+
+    private async Task HandleStartAsync(ITelegramBotClient client, Message message, CancellationToken ct)
+    {
+        var name = message.From?.FirstName ?? "there";
+        var existingCustomer = await GetCustomerByChatIdAsync(message.Chat.Id, ct);
+        var registrationLine = existingCustomer is null
+            ? "I'll ask for your phone number whenever it is needed."
+            : $"Your registered phone number is {existingCustomer.PhoneNumber}.";
+
+        var response = $"""
+            👋 Hello {name}! Welcome to TeleQ.
+
+            I can help you manage your queue tickets:
+            /book — Get a walk-in ticket
+            /appointment — Book an appointment slot
+            /status — Check your active ticket status
+            /cancel — Cancel your active waiting ticket
+            /help — Show help
+
+            {registrationLine}
+            """;
+
+        await client.SendMessage(message.Chat.Id, response, cancellationToken: ct);
+    }
+
+    private async Task HandleBookAsync(ITelegramBotClient client, long chatId, CancellationToken ct)
+    {
+        var branches = await GetActiveBranchesAsync(ct);
+        if (branches.Count == 0)
+        {
+            await client.SendMessage(chatId, "No active branches are available right now.", cancellationToken: ct);
+            return;
+        }
+
+        SetContext(chatId, new ChatContext
+        {
+            Step = ConversationStep.AwaitingBranchSelection,
+            PendingCommand = "book"
+        });
+
+        await client.SendMessage(
+            chatId,
+            "📋 Select a branch for your walk-in ticket:",
+            replyMarkup: BranchKeyboard(branches, "branch_book"),
+            cancellationToken: ct);
+    }
+
+    private async Task HandleAppointmentAsync(ITelegramBotClient client, long chatId, CancellationToken ct)
+    {
+        var branches = await GetActiveBranchesAsync(ct);
+        if (branches.Count == 0)
+        {
+            await client.SendMessage(chatId, "No active branches are available right now.", cancellationToken: ct);
+            return;
+        }
+
+        SetContext(chatId, new ChatContext
+        {
+            Step = ConversationStep.AwaitingBranchSelection,
+            PendingCommand = "appointment"
+        });
+
+        await client.SendMessage(
+            chatId,
+            "📅 Select a branch for your appointment:",
+            replyMarkup: BranchKeyboard(branches, "branch_apt"),
+            cancellationToken: ct);
+    }
+
+    private async Task HandleStatusAsync(ITelegramBotClient client, long chatId, CancellationToken ct)
+    {
+        var customer = await GetCustomerByChatIdAsync(chatId, ct);
+        if (customer is null)
+        {
+            SetContext(chatId, new ChatContext
+            {
+                Step = ConversationStep.AwaitingPhoneNumber,
+                PendingCommand = "status"
+            });
+
+            await client.SendMessage(chatId, "Please send your phone number (e.g. +201234567890)", cancellationToken: ct);
+            return;
+        }
+
+        ClearContext(chatId);
+        await client.SendMessage(chatId, await BuildStatusMessageAsync(customer.PhoneNumber, ct), cancellationToken: ct);
+    }
+
+    private async Task HandleCancelAsync(ITelegramBotClient client, long chatId, CancellationToken ct)
+    {
+        var customer = await GetCustomerByChatIdAsync(chatId, ct);
+        if (customer is null)
+        {
+            SetContext(chatId, new ChatContext
+            {
+                Step = ConversationStep.AwaitingPhoneNumber,
+                PendingCommand = "cancel"
+            });
+
+            await client.SendMessage(chatId, "Please send your phone number (e.g. +201234567890)", cancellationToken: ct);
+            return;
+        }
+
+        ClearContext(chatId);
+        var msg = await CancelActiveTicketAsync(customer.PhoneNumber, ct);
+        await client.SendMessage(chatId, msg, cancellationToken: ct);
+    }
+
+    // ── Callback (inline-keyboard) handlers ────────────────────────────────
+
+    private async Task HandleBranchSelectionAsync(
+        ITelegramBotClient client,
+        CallbackQuery callbackQuery,
+        Guid branchId,
+        bool isAppointment,
+        CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var branch = await db.Branches
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == branchId && x.IsActive, ct)
+            ?? throw new InvalidOperationException("The selected branch is not available.");
+
+        var services = await db.Services
+            .AsNoTracking()
+            .Where(x => x.BranchId == branchId && x.IsActive)
+            .OrderBy(x => x.Name)
+            .ToListAsync(ct);
+
+        if (services.Count == 0)
+        {
+            throw new InvalidOperationException($"{branch.Name} has no active services right now.");
+        }
+
+        SetContext(callbackQuery.Message!.Chat.Id, new ChatContext
+        {
+            Step = ConversationStep.AwaitingServiceSelection,
+            SelectedBranchId = branchId,
+            PendingCommand = isAppointment ? "appointment" : "book"
+        });
+
+        await UpdateCallbackMessageAsync(
+            client,
+            callbackQuery,
+            $"Select a service at {branch.Name}:",
+            ServiceKeyboard(services, isAppointment ? "service_apt" : "service_book"),
+            ct);
+    }
+
+    private async Task HandleServiceSelectionForBookingAsync(
+        ITelegramBotClient client,
+        CallbackQuery callbackQuery,
+        Guid serviceId,
+        CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var service = await db.Services
+            .AsNoTracking()
+            .Include(x => x.Branch)
+            .FirstOrDefaultAsync(x => x.Id == serviceId && x.IsActive && x.Branch.IsActive, ct)
+            ?? throw new InvalidOperationException("The selected service is not available.");
+
+        var chatId = callbackQuery.Message!.Chat.Id;
+        var customer = await GetCustomerByChatIdAsync(chatId, ct);
+        if (customer is null)
+        {
+            SetContext(chatId, new ChatContext
+            {
+                Step = ConversationStep.AwaitingPhoneNumber,
+                SelectedBranchId = service.BranchId,
+                SelectedServiceId = service.Id,
+                PendingCommand = "book"
+            });
+
+            await UpdateCallbackMessageAsync(
+                client,
+                callbackQuery,
+                $"{service.Name} selected at {service.Branch.Name}. Please send your phone number (e.g. +201234567890)",
+                null,
+                ct);
+            return;
+        }
+
+        var ticket = await IssueWalkInTicketAsync(service.BranchId, service.Id, customer.PhoneNumber, ct);
+        ClearContext(chatId);
+
+        await UpdateCallbackMessageAsync(
+            client,
+            callbackQuery,
+            BuildWalkInConfirmationMessage(service.Branch.Name, service.Name, ticket),
+            null,
+            ct);
+    }
+
+    private async Task HandleServiceSelectionForAppointmentAsync(
+        ITelegramBotClient client,
+        CallbackQuery callbackQuery,
+        Guid serviceId,
+        CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var service = await db.Services
+            .AsNoTracking()
+            .Include(x => x.Branch)
+            .FirstOrDefaultAsync(x => x.Id == serviceId && x.IsActive && x.Branch.IsActive, ct)
+            ?? throw new InvalidOperationException("The selected service is not available.");
+
+        var slots = await db.TimeSlots
+            .AsNoTracking()
+            .Where(x => x.BranchId == service.BranchId && x.ServiceId == service.Id && x.IsActive && x.BookedCount < x.Capacity)
+            .ToListAsync(ct);
+
+        slots = slots
+            .Where(x => SlotScheduler.NextOccurrence(x) > DateTimeOffset.UtcNow)
+            .OrderBy(SlotScheduler.NextOccurrence)
+            .ToList();
+
+        if (slots.Count == 0)
+        {
+            throw new InvalidOperationException($"No available time slots were found for {service.Name}.");
+        }
+
+        SetContext(callbackQuery.Message!.Chat.Id, new ChatContext
+        {
+            Step = ConversationStep.AwaitingSlotSelection,
+            SelectedBranchId = service.BranchId,
+            SelectedServiceId = service.Id,
+            PendingCommand = "appointment"
+        });
+
+        await UpdateCallbackMessageAsync(
+            client,
+            callbackQuery,
+            $"Select a time slot for {service.Name} at {service.Branch.Name}:",
+            SlotKeyboard(slots),
+            ct);
+    }
+
+    private async Task HandleSlotSelectionAsync(
+        ITelegramBotClient client,
+        CallbackQuery callbackQuery,
+        Guid slotId,
+        CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var slot = await db.TimeSlots
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == slotId && x.IsActive, ct)
+            ?? throw new InvalidOperationException("The selected time slot is not available.");
+
+        if (slot.BookedCount >= slot.Capacity || SlotScheduler.NextOccurrence(slot) <= DateTimeOffset.UtcNow)
+        {
+            throw new InvalidOperationException("The selected time slot is no longer available.");
+        }
+
+        var service = await db.Services
+            .AsNoTracking()
+            .Include(x => x.Branch)
+            .FirstOrDefaultAsync(x => x.Id == slot.ServiceId && x.IsActive && x.Branch.IsActive, ct)
+            ?? throw new InvalidOperationException("The selected service is not available.");
+
+        var chatId = callbackQuery.Message!.Chat.Id;
+        var customer = await GetCustomerByChatIdAsync(chatId, ct);
+        if (customer is null)
+        {
+            SetContext(chatId, new ChatContext
+            {
+                Step = ConversationStep.AwaitingPhoneNumber,
+                SelectedBranchId = slot.BranchId,
+                SelectedServiceId = slot.ServiceId,
+                SelectedTimeSlotId = slot.Id,
+                PendingCommand = "appointment"
+            });
+
+            await UpdateCallbackMessageAsync(
+                client,
+                callbackQuery,
+                $"Slot selected for {FormatSlot(slot)}. Please send your phone number (e.g. +201234567890)",
+                null,
+                ct);
+            return;
+        }
+
+        var ticket = await BookAppointmentAsync(slot.BranchId, slot.ServiceId, slot.Id, customer.PhoneNumber, ct);
+        ClearContext(chatId);
+
+        await UpdateCallbackMessageAsync(
+            client,
+            callbackQuery,
+            BuildAppointmentConfirmationMessage(service.Branch.Name, service.Name, slot, ticket),
+            null,
+            ct);
+    }
+
+    private async Task HandlePhoneNumberAsync(
+        ITelegramBotClient client,
+        Message message,
+        ChatContext context,
+        CancellationToken ct)
+    {
+        var phone = NormalizePhoneNumber(message.Contact?.PhoneNumber ?? message.Text);
+        if (phone is null)
+        {
+            await client.SendMessage(message.Chat.Id, "That phone number looks invalid. Please send it in this format: +201234567890", cancellationToken: ct);
+            return;
+        }
+
+        await SaveCustomerAsync(message.Chat.Id, phone, ct);
+
+        switch (context.PendingCommand)
+        {
+            case "book" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue:
+            {
+                var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
+                var ticket = await IssueWalkInTicketAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, phone, ct);
+                ClearContext(message.Chat.Id);
+                await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), cancellationToken: ct);
+                return;
+            }
+            case "appointment" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue && context.SelectedTimeSlotId.HasValue:
+            {
+                var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
+                var slot = await GetTimeSlotAsync(context.SelectedTimeSlotId.Value, ct);
+                var ticket = await BookAppointmentAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, context.SelectedTimeSlotId.Value, phone, ct);
+                ClearContext(message.Chat.Id);
+                await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), cancellationToken: ct);
+                return;
+            }
+            case "status":
+                ClearContext(message.Chat.Id);
+                await client.SendMessage(message.Chat.Id, await BuildStatusMessageAsync(phone, ct), cancellationToken: ct);
+                return;
+            case "cancel":
+                ClearContext(message.Chat.Id);
+                await client.SendMessage(message.Chat.Id, await CancelActiveTicketAsync(phone, ct), cancellationToken: ct);
+                return;
+            default:
+                ClearContext(message.Chat.Id);
+                await client.SendMessage(message.Chat.Id, $"✅ Phone number {phone} saved. You can now use /book, /appointment, /status, or /cancel.", cancellationToken: ct);
+                return;
+        }
+    }
+
+    // ── Data access helpers ────────────────────────────────────────────────
+
+    private async Task<TelegramCustomer?> GetCustomerByChatIdAsync(long chatId, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await db.TelegramCustomers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TelegramChatId == chatId, ct);
+    }
+
+    private async Task SaveCustomerAsync(long chatId, string phoneNumber, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var now = DateTimeOffset.UtcNow;
+
+        var byChat = await db.TelegramCustomers.FirstOrDefaultAsync(x => x.TelegramChatId == chatId, ct);
+        var byPhone = await db.TelegramCustomers.FirstOrDefaultAsync(x => x.PhoneNumber == phoneNumber, ct);
+
+        if (byChat is not null && byPhone is not null && byChat.Id != byPhone.Id)
+        {
+            db.TelegramCustomers.Remove(byChat);
+            byChat = null;
+        }
+
+        var customer = byChat ?? byPhone;
+        if (customer is null)
+        {
+            customer = new TelegramCustomer
+            {
+                Id = Guid.NewGuid(),
+                TelegramChatId = chatId,
+                PhoneNumber = phoneNumber,
+                RegisteredAt = now,
+                LastActiveAt = now
+            };
+            db.TelegramCustomers.Add(customer);
+        }
+        else
+        {
+            customer.TelegramChatId = chatId;
+            customer.PhoneNumber = phoneNumber;
+            customer.LastActiveAt = now;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task TouchCustomerActivityAsync(long chatId, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await db.TelegramCustomers.FirstOrDefaultAsync(x => x.TelegramChatId == chatId, ct);
+        if (customer is null)
+        {
+            return;
+        }
+
+        customer.LastActiveAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<IList<Data.Entities.Branch>> GetActiveBranchesAsync(CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await db.Branches
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Name)
+            .ToListAsync(ct);
+    }
+
+    private async Task<(string BranchName, string ServiceName)> GetServiceDetailsAsync(Guid branchId, Guid serviceId, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var service = await db.Services
+            .AsNoTracking()
+            .Include(x => x.Branch)
+            .FirstOrDefaultAsync(x => x.Id == serviceId && x.BranchId == branchId, ct)
+            ?? throw new InvalidOperationException("The selected service could not be found.");
+
+        return (service.Branch.Name, service.Name);
+    }
+
+    private async Task<Data.Entities.TimeSlot> GetTimeSlotAsync(Guid slotId, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        return await db.TimeSlots
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == slotId, ct)
+            ?? throw new InvalidOperationException("The selected time slot could not be found.");
+    }
+
+    private async Task<Ticket> IssueWalkInTicketAsync(Guid branchId, Guid serviceId, string customerPhone, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var service = await db.Services
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == serviceId && x.BranchId == branchId && x.IsActive, ct)
+            ?? throw new InvalidOperationException("Service not found or inactive for the selected branch.");
+
+        var queueId = GetQueueId(branchId, serviceId);
+        var queue = await session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
+        var queuePosition = queue?.NextQueueNumber ?? 1;
+        var ticketNumber = $"A-{queuePosition:D3}";
+        var ticketId = Guid.NewGuid();
+
+        var evt = new TicketIssued(
+            TicketId: ticketId,
+            TicketNumber: ticketNumber,
+            CustomerPhone: customerPhone,
+            BranchId: branchId,
+            ServiceId: service.Id,
+            QueuePosition: queuePosition,
+            IssuedAt: DateTimeOffset.UtcNow);
+
+        session.Events.StartStream<Ticket>(ticketId, evt);
+        await session.SaveChangesAsync(ct);
+
+        return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
+            ?? throw new InvalidOperationException("The ticket could not be created.");
+    }
+
+    private async Task<Ticket> BookAppointmentAsync(Guid branchId, Guid serviceId, Guid timeSlotId, string customerPhone, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var slot = await db.TimeSlots.FirstOrDefaultAsync(x => x.Id == timeSlotId, ct)
+            ?? throw new InvalidOperationException("The selected time slot could not be found.");
+
+        if (!slot.IsActive || slot.ServiceId != serviceId || slot.BranchId != branchId)
+        {
+            throw new InvalidOperationException("Time slot not found or inactive for the selected branch and service.");
+        }
+
+        if (slot.BookedCount >= slot.Capacity)
+        {
+            throw new InvalidOperationException("This time slot is fully booked.");
+        }
+
+        var scheduledAt = SlotScheduler.NextOccurrence(slot);
+        if (scheduledAt <= DateTimeOffset.UtcNow)
+        {
+            throw new InvalidOperationException("Cannot book a time slot in the past.");
+        }
+
+        var queueId = GetQueueId(branchId, serviceId);
+        var queue = await session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
+        var queuePosition = queue?.NextQueueNumber ?? 1;
+        var ticketNumber = $"B-{queuePosition:D3}";
+        var ticketId = Guid.NewGuid();
+
+        var evt = new AppointmentBooked(
+            TicketId: ticketId,
+            TicketNumber: ticketNumber,
+            CustomerPhone: customerPhone,
+            BranchId: branchId,
+            ServiceId: serviceId,
+            TimeSlotId: timeSlotId,
+            ScheduledAt: scheduledAt,
+            QueuePosition: queuePosition,
+            BookedAt: DateTimeOffset.UtcNow);
+
+        session.Events.StartStream<Ticket>(ticketId, evt);
+        slot.BookedCount++;
+
+        await db.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
+
+        return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
+            ?? throw new InvalidOperationException("The appointment could not be created.");
+    }
+
+    private async Task<string> BuildStatusMessageAsync(string phoneNumber, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var querySession = scope.ServiceProvider.GetRequiredService<IQuerySession>();
+        var documentSession = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var snapshots = await querySession.Query<BranchQueueSnapshot>().ToListAsync(ct);
+        var branches = await db.Branches.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+        var services = await db.Services.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x, ct);
+
+        var activeEntries = snapshots
+            .SelectMany(snapshot => snapshot.WaitingTickets.Concat(snapshot.CalledTickets)
+                .Where(entry => entry.CustomerPhone == phoneNumber)
+                .Select(entry => new { snapshot, entry }))
+            .OrderBy(x => x.entry.QueuePosition)
+            .ToList();
+
+        if (activeEntries.Count == 0)
+        {
+            return "You have no active tickets right now.";
+        }
+
+        var lines = new List<string> { "🎫 Your active tickets:" };
+
+        foreach (var item in activeEntries)
+        {
+            var ticket = await documentSession.Events.AggregateStreamAsync<Ticket>(item.entry.TicketId, token: ct);
+            if (ticket is null || ticket.Status is TicketStatus.Served or TicketStatus.NoShow or TicketStatus.Cancelled)
+            {
+                continue;
+            }
+
+            branches.TryGetValue(ticket.BranchId, out var branchName);
+            services.TryGetValue(ticket.ServiceId, out var service);
+            var aheadCount = item.snapshot.WaitingTickets.Count(x => x.QueuePosition < ticket.QueuePosition);
+            var estimatedWait = aheadCount * (service?.EstimatedDurationMinutes ?? 10);
+            var statusLine = ticket.Status == TicketStatus.Called
+                ? $"Called to {ticket.CounterLabel ?? "counter"}"
+                : $"Waiting • {aheadCount} ahead • ~{estimatedWait} min";
+            var scheduleLine = ticket.ScheduledAt.HasValue
+                ? $" • {ticket.ScheduledAt.Value:ddd dd MMM HH:mm}"
+                : string.Empty;
+
+            lines.Add($"• {ticket.TicketNumber} — {branchName ?? "Unknown branch"} / {service?.Name ?? "Unknown service"} — {statusLine}{scheduleLine}");
+        }
+
+        return lines.Count == 1
+            ? "You have no active tickets right now."
+            : string.Join(Environment.NewLine, lines);
+    }
+
+    private async Task<string> CancelActiveTicketAsync(string phoneNumber, CancellationToken ct)
+    {
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
+
+        var snapshots = await session.Query<BranchQueueSnapshot>().ToListAsync(ct);
+        var waitingTicketId = snapshots
+            .SelectMany(x => x.WaitingTickets)
+            .Where(x => x.CustomerPhone == phoneNumber)
+            .OrderBy(x => x.QueuePosition)
+            .Select(x => x.TicketId)
+            .FirstOrDefault();
+
+        if (waitingTicketId == Guid.Empty)
+        {
+            return "You have no active waiting ticket to cancel.";
+        }
+
+        var ticket = await session.Events.AggregateStreamAsync<Ticket>(waitingTicketId, token: ct)
+            ?? throw new InvalidOperationException("The ticket could not be found.");
+
+        if (ticket.CustomerPhone != phoneNumber || ticket.Status != TicketStatus.Waiting)
+        {
+            return "You have no active waiting ticket to cancel.";
+        }
+
+        if (ticket.TimeSlotId.HasValue)
+        {
+            var slot = await db.TimeSlots.FirstOrDefaultAsync(x => x.Id == ticket.TimeSlotId.Value, ct);
+            if (slot is not null)
+            {
+                slot.BookedCount = Math.Max(0, slot.BookedCount - 1);
+            }
+        }
+
+        var evt = new TicketCancelled(
+            TicketId: ticket.Id,
+            BranchId: ticket.BranchId,
+            ServiceId: ticket.ServiceId,
+            CancelledBy: "telegram-bot",
+            CancelledAt: DateTimeOffset.UtcNow);
+
+        session.Events.Append(ticket.Id, evt);
+        await db.SaveChangesAsync(ct);
+        await session.SaveChangesAsync(ct);
+
+        return $"❌ Ticket {ticket.TicketNumber} has been cancelled.";
+    }
+
+    // ── UI helpers ─────────────────────────────────────────────────────────
+
+    private static InlineKeyboardMarkup BranchKeyboard(IList<Data.Entities.Branch> branches, string prefix) =>
+        new(branches
+            .Select(branch => new[]
+            {
+                InlineKeyboardButton.WithCallbackData(branch.Name, $"{prefix}:{branch.Id}")
+            }));
+
+    private static InlineKeyboardMarkup ServiceKeyboard(IList<Data.Entities.Service> services, string prefix) =>
+        new(services
+            .Select(service => new[]
+            {
+                InlineKeyboardButton.WithCallbackData(service.Name, $"{prefix}:{service.Id}")
+            }));
+
+    private static InlineKeyboardMarkup SlotKeyboard(IList<Data.Entities.TimeSlot> slots) =>
+        new(slots
+            .OrderBy(SlotScheduler.NextOccurrence)
+            .Select(slot => new[]
+            {
+                InlineKeyboardButton.WithCallbackData(FormatSlot(slot), $"slot_apt:{slot.Id}")
+            }));
+
+    private static string BuildWalkInConfirmationMessage(string branchName, string serviceName, Ticket ticket) =>
+        $"""
+        ✅ Walk-in ticket issued.
+        Ticket: {ticket.TicketNumber}
+        Branch: {branchName}
+        Service: {serviceName}
+        Queue position: {ticket.QueuePosition}
+        """;
+
+    private static string BuildAppointmentConfirmationMessage(string branchName, string serviceName, Data.Entities.TimeSlot slot, Ticket ticket) =>
+        $"""
+        ✅ Appointment booked.
+        Ticket: {ticket.TicketNumber}
+        Branch: {branchName}
+        Service: {serviceName}
+        Slot: {FormatSlot(slot)}
+        Queue position: {ticket.QueuePosition}
+        """;
+
+    private static string FormatSlot(Data.Entities.TimeSlot slot)
+    {
+        var scheduledAt = SlotScheduler.NextOccurrence(slot);
+        var remaining = Math.Max(0, slot.Capacity - slot.BookedCount);
+        return $"{scheduledAt:ddd dd MMM HH:mm} ({remaining} left)";
+    }
+
+    private async Task UpdateCallbackMessageAsync(
+        ITelegramBotClient client,
+        CallbackQuery callbackQuery,
+        string text,
+        InlineKeyboardMarkup? replyMarkup,
+        CancellationToken ct)
+    {
+        if (callbackQuery.Message is null)
+        {
+            await client.SendMessage(callbackQuery.From.Id, text, replyMarkup: replyMarkup, cancellationToken: ct);
+            return;
+        }
+
+        await client.EditMessageText(
+            callbackQuery.Message.Chat.Id,
+            callbackQuery.Message.MessageId,
+            text,
+            replyMarkup: replyMarkup,
+            cancellationToken: ct);
+    }
+
+    private static string? NormalizePhoneNumber(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Replace(" ", string.Empty)
+            .Replace("-", string.Empty)
+            .Replace("(", string.Empty)
+            .Replace(")", string.Empty);
+
+        return PhoneRegex.IsMatch(normalized) ? normalized : null;
+    }
+
+    private static string GetQueueId(Guid branchId, Guid serviceId) => $"{branchId}:{serviceId}";
+
+    private ChatContext GetContext(long chatId) => _chatContexts.TryGetValue(chatId, out var context) ? context : new ChatContext();
+
+    private void SetContext(long chatId, ChatContext context) => _chatContexts[chatId] = context;
+
+    private void ClearContext(long chatId) => _chatContexts.TryRemove(chatId, out _);
+
+    private static string GetHelpText() =>
+        """
+        TeleQ Bot Commands:
+        /start — Welcome message
+        /book — Get a walk-in ticket
+        /appointment — Book an appointment slot
+        /status — Check active tickets
+        /cancel — Cancel your active waiting ticket
+        /help — Show this help
+        """;
+
+    private static async Task SafeSendMessageAsync(ITelegramBotClient client, long chatId, string message, CancellationToken ct)
+    {
+        try
+        {
+            await client.SendMessage(chatId, message, cancellationToken: ct);
+        }
+        catch
+        {
+            // ignore secondary delivery failures
+        }
+    }
+
+    private static async Task SafeAnswerCallbackAsync(ITelegramBotClient client, string callbackQueryId, CancellationToken ct)
+    {
+        try
+        {
+            await client.AnswerCallbackQuery(callbackQueryId, cancellationToken: ct);
+        }
+        catch
+        {
+            // ignore secondary delivery failures
+        }
+    }
+}
