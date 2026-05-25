@@ -1,10 +1,51 @@
+@inject IHttpContextAccessor HttpContextAccessor
+@{
+    var themeCookie = HttpContextAccessor.HttpContext?.Request.Cookies["teleq.theme"];
+    var bsTheme = themeCookie is "light" or "dark" ? themeCookie : null;
+}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="@bsTheme">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
+    <script>
+        (function () {
+            function applyTheme(theme) {
+                var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.documentElement.setAttribute(
+                    'data-bs-theme',
+                    theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme
+                );
+            }
+
+            function applyStoredTheme() {
+                applyTheme(localStorage.getItem('theme') || 'system');
+            }
+
+            // Apply on first load (covers system mode which the server can't resolve)
+            applyStoredTheme();
+
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+                if ((localStorage.getItem('theme') || 'system') === 'system') {
+                    applyStoredTheme();
+                }
+            });
+
+            window.themeManager = {
+                getTheme: function () { return localStorage.getItem('theme') || 'system'; },
+                setTheme: function (theme) {
+                    localStorage.setItem('theme', theme);
+                    // Persist to cookie so the server sets data-bs-theme on <html>
+                    // on every enhanced-navigation fetch, eliminating the flash.
+                    var maxAge = 60 * 60 * 24 * 365;
+                    document.cookie = 'teleq.theme=' + theme + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+                    applyTheme(theme);
+                }
+            };
+        })();
+    </script>
     <link rel="stylesheet" href="lib/bootstrap/css/bootstrap.min.css" />
     <link rel="stylesheet" href="lib/bootstrap-icons/font/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="@Assets["app.css"]" />

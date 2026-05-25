@@ -33,6 +33,8 @@ public sealed class BranchQueueSnapshot
     public int TotalNoShowToday { get; set; }
     public int TotalCancelledToday { get; set; }
     public int NextQueueNumber { get; set; } = 1;
+    /// <summary>The calendar date of the last ticket event, used to detect day rollovers.</summary>
+    public DateOnly LastQueueDate { get; set; }
 }
 
 /// <summary>
@@ -54,6 +56,8 @@ public sealed partial class BranchQueueProjection : MultiStreamProjection<Branch
 
     public void Apply(TicketIssued e, BranchQueueSnapshot doc)
     {
+        RolloverIfNewDay(doc, DateOnly.FromDateTime(e.IssuedAt.UtcDateTime));
+
         doc.BranchId = e.BranchId;
         doc.ServiceId = e.ServiceId;
         doc.WaitingTickets.Add(new QueueEntry
@@ -70,6 +74,8 @@ public sealed partial class BranchQueueProjection : MultiStreamProjection<Branch
 
     public void Apply(AppointmentBooked e, BranchQueueSnapshot doc)
     {
+        RolloverIfNewDay(doc, DateOnly.FromDateTime(e.BookedAt.UtcDateTime));
+
         doc.BranchId = e.BranchId;
         doc.ServiceId = e.ServiceId;
         doc.WaitingTickets.Add(new QueueEntry
@@ -119,5 +125,23 @@ public sealed partial class BranchQueueProjection : MultiStreamProjection<Branch
     {
         var entry = doc.WaitingTickets.FirstOrDefault(t => t.TicketId == e.TicketId);
         entry?.ScheduledAt = e.NewScheduledAt;
+    }
+
+    /// <summary>
+    /// Resets all daily counters when the event belongs to a new calendar day.
+    /// Uses the event's own timestamp so projection replays remain deterministic.
+    /// Active ticket lists are NOT cleared here — they are managed by their own Apply handlers
+    /// (TicketServed, TicketCancelled, TicketNoShow).
+    /// </summary>
+    private static void RolloverIfNewDay(BranchQueueSnapshot doc, DateOnly eventDate)
+    {
+        if (eventDate <= doc.LastQueueDate)
+            return;
+
+        doc.NextQueueNumber = 1;
+        doc.TotalServedToday = 0;
+        doc.TotalNoShowToday = 0;
+        doc.TotalCancelledToday = 0;
+        doc.LastQueueDate = eventDate;
     }
 }

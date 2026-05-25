@@ -757,7 +757,8 @@ public sealed partial class TelegramUpdateHandler(
         var service = await serviceTask
             ?? throw new InvalidOperationException("Service not found or inactive for the selected branch.");
         var queue = await queueTask;
-        var queuePosition = queue?.NextQueueNumber ?? 1;
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"A-{queuePosition:D3}";
         var ticketId = Guid.NewGuid();
 
@@ -772,6 +773,8 @@ public sealed partial class TelegramUpdateHandler(
 
         session.Events.StartStream<Ticket>(ticketId, evt);
         await session.SaveChangesAsync(ct);
+
+        await cache.RemoveByTagAsync(CacheKeys.QueueTags(branchId, service.Id), ct);
 
         return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
             ?? throw new InvalidOperationException("The ticket could not be created.");
@@ -804,7 +807,8 @@ public sealed partial class TelegramUpdateHandler(
 
         var queueId = GetQueueId(branchId, serviceId);
         var queue = await session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
-        var queuePosition = queue?.NextQueueNumber ?? 1;
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"B-{queuePosition:D3}";
         var ticketId = Guid.NewGuid();
 
@@ -825,10 +829,9 @@ public sealed partial class TelegramUpdateHandler(
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
 
-        // Invalidate cached slot entity and the available-slots list so subsequent
-        // slot selection screens reflect the updated BookedCount.
+        // Invalidate queue cache (desk display) and slot caches so both are immediately consistent.
         await cache.RemoveByTagAsync(
-            ["timeslots", $"timeslots:service:{serviceId}", $"timeslot:{timeSlotId}"], ct);
+            [..CacheKeys.QueueTags(branchId, serviceId), "timeslots", $"timeslots:service:{serviceId}", $"timeslot:{timeSlotId}"], ct);
 
         return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
             ?? throw new InvalidOperationException("The appointment could not be created.");
@@ -944,13 +947,12 @@ public sealed partial class TelegramUpdateHandler(
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
 
-        // If the ticket held a time slot, invalidate its cached entities so
-        // the newly freed capacity is visible on the next slot selection.
-        if (ticket.TimeSlotId.HasValue)
-        {
-            await cache.RemoveByTagAsync(
-                ["timeslots", $"timeslots:service:{ticket.ServiceId}", $"timeslot:{ticket.TimeSlotId.Value}"], ct);
-        }
+        // Invalidate queue cache so the desk sees the cancellation immediately.
+        var queueTags = CacheKeys.QueueTags(ticket.BranchId, ticket.ServiceId);
+        await cache.RemoveByTagAsync(
+            ticket.TimeSlotId.HasValue
+                ? [..queueTags, "timeslots", $"timeslots:service:{ticket.ServiceId}", $"timeslot:{ticket.TimeSlotId.Value}"]
+                : [..queueTags], ct);
 
         return $"❌ Ticket {ticket.TicketNumber} has been cancelled.";
     }

@@ -1,0 +1,57 @@
+@inject IJSRuntime JS
+
+<div class="dropdown">
+    <button class="btn btn-outline-light btn-sm dropdown-toggle"
+            type="button"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            title="Color theme">
+        <i class="bi @GetThemeIcon()"></i>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+            <button class="dropdown-item @(currentTheme == "light" ? "active" : "")"
+                    @onclick='() => SetThemeAsync("light")'>
+                <i class="bi bi-sun me-2"></i>Light
+            </button>
+        </li>
+        <li>
+            <button class="dropdown-item @(currentTheme == "dark" ? "active" : "")"
+                    @onclick='() => SetThemeAsync("dark")'>
+                <i class="bi bi-moon-stars me-2"></i>Dark
+            </button>
+        </li>
+        <li>
+            <button class="dropdown-item @(currentTheme == "system" ? "active" : "")"
+                    @onclick='() => SetThemeAsync("system")'>
+                <i class="bi bi-circle-half me-2"></i>System
+            </button>
+        </li>
+    </ul>
+</div>
+
+@code {
+    private string currentTheme = "system";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            currentTheme = await JS.InvokeAsync<string>("themeManager.getTheme");
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetThemeAsync(string theme)
+    {
+        currentTheme = theme;
+        await JS.InvokeVoidAsync("themeManager.setTheme", theme);
+    }
+
+    private string GetThemeIcon() => currentTheme switch
+    {
+        "light" => "bi-sun",
+        "dark" => "bi-moon-stars",
+        _ => "bi-circle-half"
+    };
+}

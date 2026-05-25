@@ -11,6 +11,7 @@
             </button>
             <div class="collapse navbar-collapse" id="teleqNavbar">
                 <div class="ms-auto d-flex align-items-center gap-2">
+                    <ThemeToggle />
                     <AuthorizeView Context="authState">
                         <Authorized>
                             <span class="text-white-50 small d-none d-lg-inline">
@@ -33,7 +34,7 @@
 
     <div class="container-fluid flex-grow-1">
         <div class="row g-0">
-            <aside class="col-12 col-lg-3 col-xl-2 border-end bg-white">
+            <aside class="col-12 col-lg-3 col-xl-2 border-end bg-body">
                 <div class="p-3">
                     <p class="text-uppercase text-muted small fw-semibold mb-3">Navigation</p>
                     <nav class="nav nav-pills flex-column gap-1">
@@ -86,7 +87,7 @@
         </div>
     </div>
 
-    <footer class="bg-white border-top py-2 text-center text-muted small">
+    <footer class="bg-body border-top py-2 text-center text-muted small">
         &copy; @DateTime.Now.Year TeleQ — Queue Management System
     </footer>
 </div>

@@ -57,7 +57,8 @@ public sealed class BookAppointmentEndpoint(
 
         var queueId = $"{req.BranchId}:{req.ServiceId}";
         var queue = await session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
-        var queuePosition = (queue?.NextQueueNumber ?? 1);
+        var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
+        var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"B-{queuePosition:D3}";
 
         var ticketId = Guid.NewGuid();
