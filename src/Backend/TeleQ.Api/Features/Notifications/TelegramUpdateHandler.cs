@@ -1,9 +1,11 @@
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
-using IDocumentSession = Marten.IDocumentSession;
-using IQuerySession = Marten.IQuerySession;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
+using Telegram.Bot;
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.ReplyMarkups;
 using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
@@ -11,11 +13,8 @@ using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
 using TeleQ.Api.Data.Entities;
 using TeleQ.Api.Features.Tickets;
-using Telegram.Bot;
-using Telegram.Bot.Polling;
-using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.ReplyMarkups;
+using IDocumentSession = Marten.IDocumentSession;
+using IQuerySession = Marten.IQuerySession;
 
 namespace TeleQ.Api.Features.Notifications;
 
@@ -583,23 +582,23 @@ public sealed partial class TelegramUpdateHandler(
         switch (context.PendingCommand)
         {
             case "book" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue:
-            {
-                var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
-                var ticket = await IssueWalkInTicketAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, phone, ct);
-                ClearContext(message.Chat.Id);
-                await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), cancellationToken: ct);
-                return;
-            }
+                {
+                    var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
+                    var ticket = await IssueWalkInTicketAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, phone, ct);
+                    ClearContext(message.Chat.Id);
+                    await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), cancellationToken: ct);
+                    return;
+                }
             case "appointment" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue && context.SelectedTimeSlotId.HasValue:
-            {
-                var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
-                var slot = await GetTimeSlotAsync(context.SelectedTimeSlotId.Value, ct)
-                    ?? throw new InvalidOperationException("The selected time slot could not be found.");
-                var ticket = await BookAppointmentAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, context.SelectedTimeSlotId.Value, phone, ct);
-                ClearContext(message.Chat.Id);
-                await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), cancellationToken: ct);
-                return;
-            }
+                {
+                    var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
+                    var slot = await GetTimeSlotAsync(context.SelectedTimeSlotId.Value, ct)
+                        ?? throw new InvalidOperationException("The selected time slot could not be found.");
+                    var ticket = await BookAppointmentAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, context.SelectedTimeSlotId.Value, phone, ct);
+                    ClearContext(message.Chat.Id);
+                    await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), cancellationToken: ct);
+                    return;
+                }
             case "status":
                 ClearContext(message.Chat.Id);
                 await client.SendMessage(message.Chat.Id, await BuildStatusMessageAsync(phone, ct), cancellationToken: ct);
@@ -831,7 +830,7 @@ public sealed partial class TelegramUpdateHandler(
 
         // Invalidate queue cache (desk display) and slot caches so both are immediately consistent.
         await cache.RemoveByTagAsync(
-            [..CacheKeys.QueueTags(branchId, serviceId), "timeslots", $"timeslots:service:{serviceId}", $"timeslot:{timeSlotId}"], ct);
+            [.. CacheKeys.QueueTags(branchId, serviceId), "timeslots", $"timeslots:service:{serviceId}", $"timeslot:{timeSlotId}"], ct);
 
         return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
             ?? throw new InvalidOperationException("The appointment could not be created.");
@@ -951,8 +950,8 @@ public sealed partial class TelegramUpdateHandler(
         var queueTags = CacheKeys.QueueTags(ticket.BranchId, ticket.ServiceId);
         await cache.RemoveByTagAsync(
             ticket.TimeSlotId.HasValue
-                ? [..queueTags, "timeslots", $"timeslots:service:{ticket.ServiceId}", $"timeslot:{ticket.TimeSlotId.Value}"]
-                : [..queueTags], ct);
+                ? [.. queueTags, "timeslots", $"timeslots:service:{ticket.ServiceId}", $"timeslot:{ticket.TimeSlotId.Value}"]
+                : [.. queueTags], ct);
 
         return $"❌ Ticket {ticket.TicketNumber} has been cancelled.";
     }
