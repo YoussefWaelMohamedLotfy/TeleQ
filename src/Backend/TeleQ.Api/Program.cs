@@ -13,6 +13,7 @@ using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using TeleQ.Api.Common.Aggregates;
 using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
@@ -129,7 +130,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         });
 
 builder.Services.AddAuthorizationBuilder()
-    .AddFallbackPolicy("Default", p => p.RequireAuthenticatedUser())
+    //.AddFallbackPolicy("Default", p => p.RequireAuthenticatedUser())
     .AddPolicy("AdminOnly", p => p.RequireRole("admin"))
     .AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"))
     .AddPolicy("AnyStaff", p => p.RequireRole("clerk", "admin"));
@@ -178,6 +179,26 @@ app.UseFastEndpoints(c =>
 });
 
 app.MapHub<QueueHub>("/hubs/queue");
+
+app.MapPost("/bot/telegram", async (
+    HttpContext ctx,
+    Update update,
+    TelegramUpdateHandler handler,
+    ITelegramBotClient botClient,
+    IOptions<TelegramBotOptions> opts) =>
+{
+    var secret = opts.Value.WebhookSecretToken;
+
+    if (!string.IsNullOrWhiteSpace(secret))
+    {
+        var incoming = ctx.Request.Headers["X-Telegram-Bot-Api-Secret-Token"].FirstOrDefault();
+
+        if (!string.Equals(incoming, secret, StringComparison.Ordinal))
+            return Results.Unauthorized();
+    }
+    _ = Task.Run(() => handler.HandleUpdateAsync(botClient, update, CancellationToken.None));
+    return Results.Ok();
+}).AllowAnonymous().ExcludeFromDescription();
 
 app.MapOpenApi().AllowAnonymous();
 app.MapScalarApiReference(options =>

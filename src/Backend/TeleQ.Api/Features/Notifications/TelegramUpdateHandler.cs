@@ -22,11 +22,11 @@ namespace TeleQ.Api.Features.Notifications;
 /// Used by both the long-polling <see cref="TelegramBotService"/> and the
 /// webhook <see cref="TelegramWebhookEndpoint"/>.
 /// </summary>
-public sealed class TelegramUpdateHandler(
+public sealed partial class TelegramUpdateHandler(
     ILogger<TelegramUpdateHandler> logger,
     IServiceScopeFactory scopeFactory) : IUpdateHandler
 {
-    private static readonly Regex PhoneRegex = new("^\\+?\\d{8,15}$", RegexOptions.Compiled);
+    private static readonly Regex PhoneRegex = GetPhoneRegex();
 
     private readonly ConcurrentDictionary<long, ChatContext> _chatContexts = new();
 
@@ -953,4 +953,7 @@ public sealed class TelegramUpdateHandler(
             // ignore secondary delivery failures
         }
     }
+
+    [GeneratedRegex("^\\+?\\d{8,15}$", RegexOptions.Compiled)]
+    private static partial Regex GetPhoneRegex();
 }

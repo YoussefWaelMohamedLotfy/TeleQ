@@ -34,11 +34,6 @@ var api = builder
     .WaitFor(keycloak)
     .WaitFor(garnet);
 
-// Ngrok tunnels the API's HTTPS endpoint so Telegram can reach it during local development.
-// The API queries the ngrok management API on startup to discover its dynamically-assigned
-// public URL, then registers that URL as the Telegram webhook automatically.
-// Set your auth token in user secrets:
-//   dotnet user-secrets set "ngrok-auth-token" "<your-ngrok-auth-token>"
 var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", secret: true);
 
 var ngrok = builder.AddNgrok("ngrok", endpointPort: 4040)
@@ -47,8 +42,6 @@ var ngrok = builder.AddNgrok("ngrok", endpointPort: 4040)
     .WithTunnelEndpoint(api, "https")
     .WithLifetime(ContainerLifetime.Persistent);
 
-// Inject the ngrok management API URL dynamically using Aspire's endpoint reference
-// so the correct host-mapped port is used regardless of what Aspire assigns.
 api.WaitFor(ngrok)
    .WithEnvironment("TelegramBot__NgrokManagementUrl", ngrok.GetEndpoint("http"));
 
