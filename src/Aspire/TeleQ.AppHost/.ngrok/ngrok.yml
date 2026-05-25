@@ -1,0 +1,9 @@
+version: 3
+
+agent:
+  log: stdout
+
+endpoints:
+  - name: api-https
+    upstream:
+      url: https://host.docker.internal:7157

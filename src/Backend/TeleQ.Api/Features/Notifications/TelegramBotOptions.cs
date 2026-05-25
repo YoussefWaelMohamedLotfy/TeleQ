@@ -10,7 +10,7 @@ public sealed class TelegramBotOptions
     /// <summary>
     /// When set, the bot operates in webhook mode and registers this URL with Telegram.
     /// Must be a publicly reachable HTTPS URL (e.g. https://yourdomain.com/bot/telegram).
-    /// Leave empty to fall back to long-polling.
+    /// Leave empty to fall back to long-polling (or ngrok auto-discovery if configured).
     /// </summary>
     public string? WebhookUrl { get; set; }
 
@@ -20,4 +20,12 @@ public sealed class TelegramBotOptions
     /// spoofed requests.
     /// </summary>
     public string? WebhookSecretToken { get; set; }
+
+    /// <summary>
+    /// Base URL of the ngrok management API (e.g. http://localhost:4040).
+    /// When set and <see cref="WebhookUrl"/> is empty, the bot service queries
+    /// <c>{NgrokManagementUrl}/api/tunnels</c> on startup to discover the
+    /// dynamically-assigned public URL and uses it as the webhook URL.
+    /// </summary>
+    public string? NgrokManagementUrl { get; set; }
 }

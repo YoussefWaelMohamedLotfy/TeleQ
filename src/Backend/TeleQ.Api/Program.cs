@@ -170,6 +170,11 @@ app.UseFastEndpoints(c =>
     c.Versioning.Prefix = "v";
     c.Versioning.DefaultVersion = 1;
     c.Versioning.PrependToRoute = true;
+
+    // Register Telegram.Bot JSON converters so Endpoint<Update> correctly deserializes
+    // all Telegram types (enum string values, polymorphic results, etc.).
+    foreach (var converter in JsonBotAPI.Options.Converters)
+        c.Serializer.Options.Converters.Add(converter);
 });
 
 app.MapHub<QueueHub>("/hubs/queue");
