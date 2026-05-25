@@ -5,7 +5,7 @@ namespace TeleQ.Api.Common;
 /// <summary>Provides type-safe cache key strings and tag lists for all cached resources.</summary>
 internal static class CacheKeys
 {
-    // ── Keys ──────────────────────────────────────────────────────────────
+    // ── API DTO cache keys ─────────────────────────────────────────────────
     public static string BranchList() => "branches:all";
     public static string Branch(Guid id) => $"branch:{id}";
     public static string ServiceList(Guid branchId) => $"services:branch:{branchId}";
@@ -18,6 +18,17 @@ internal static class CacheKeys
     public static string DailyStatsRange(DateOnly from, DateOnly to, Guid branchId, Guid serviceId) => $"stats:range:{from:yyyyMMdd}:{to:yyyyMMdd}:{branchId}:{serviceId}";
     public static string TicketEventLog(Guid id) => $"events:{id}";
 
+    // ── Entity cache keys (Telegram handler — type-distinct from DTO caches) ─
+    // Keys use an ":entity"/":entities" suffix so they coexist with DTO caches
+    // but share the SAME tags — admin endpoint mutations invalidate both.
+    public static string TelegramCustomer(long chatId) => $"telegram:customer:{chatId}";
+    public static string BranchListEntities() => "branches:entities";
+    public static string BranchEntity(Guid id) => $"branch:{id}:entity";
+    public static string ServiceListEntities(Guid branchId) => $"services:branch:{branchId}:entities";
+    public static string ServiceWithBranch(Guid id) => $"service:with-branch:{id}";
+    public static string TimeSlotEntity(Guid id) => $"timeslot:{id}:entity";
+    public static string AvailableTimeSlots(Guid serviceId) => $"timeslots:service:{serviceId}:available";
+
     // ── Tags ──────────────────────────────────────────────────────────────
     public static IReadOnlyList<string> BranchListTags() => ["branches"];
     public static IReadOnlyList<string> BranchTags(Guid id) => ["branches", $"branch:{id}"];
@@ -29,6 +40,11 @@ internal static class CacheKeys
     public static IReadOnlyList<string> QueueTags(Guid branchId, Guid serviceId) => [$"queue:{branchId}:{serviceId}"];
     public static IReadOnlyList<string> StatsTags(Guid branchId, Guid serviceId) => [$"stats:{branchId}:{serviceId}"];
     public static IReadOnlyList<string> EventLogTags(Guid id) => [$"events:{id}", $"ticket:{id}"];
+
+    // Additional tags for entity caches
+    public static IReadOnlyList<string> TelegramCustomerTags(long chatId) => [$"telegram:customer:{chatId}"];
+    /// <summary>Tags for service-with-branch entity: evicted by service OR branch mutations.</summary>
+    public static IReadOnlyList<string> ServiceWithBranchTags(Guid id) => ["services", $"service:{id}", "branches"];
 }
 
 /// <summary>Provides standard HybridCacheEntryOptions for different resource volatility levels.</summary>
@@ -57,6 +73,13 @@ internal static class CacheOptions
 
     /// <summary>For stats and event logs: 5 min L2, 2 min L1.</summary>
     public static readonly HybridCacheEntryOptions Stats = new()
+    {
+        Expiration = TimeSpan.FromMinutes(5),
+        LocalCacheExpiration = TimeSpan.FromMinutes(2)
+    };
+
+    /// <summary>For Telegram customer records: 5 min L2, 2 min L1.</summary>
+    public static readonly HybridCacheEntryOptions Customer = new()
     {
         Expiration = TimeSpan.FromMinutes(5),
         LocalCacheExpiration = TimeSpan.FromMinutes(2)

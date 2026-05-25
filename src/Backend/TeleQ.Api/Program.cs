@@ -1,15 +1,15 @@
 using Asp.Versioning;
 using FastEndpoints;
 using FastEndpoints.AspVersioning;
-using FastEndpoints.OpenApi;
 using JasperFx;
 using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
+using JasperFx.OpenTelemetry;
 using Marten;
+using Marten.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 using Telegram.Bot;
@@ -92,6 +92,12 @@ builder.Services.AddMarten(opts =>
         opts.UseSystemTextJsonForSerialization();
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
+
+        // Emit OTel spans for every connection (+ all write operations on SaveChanges)
+        opts.OpenTelemetry.TrackConnections = TrackLevel.Verbose;
+
+        // Export a counter metric for every event appended to the event store
+        opts.OpenTelemetry.TrackEventCounters();
 
         // Inline projections update synchronously on event append (low latency reads)
         opts.Projections.Add<BranchQueueProjection>(ProjectionLifecycle.Inline);
