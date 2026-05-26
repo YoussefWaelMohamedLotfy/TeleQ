@@ -1,7 +1,6 @@
 @page "/clerk/queue"
 @attribute [Authorize(Policy = "ClerkOrAdmin")]
 @implements IAsyncDisposable
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject HubConnectionFactory HubConnectionFactory
 @inject NavigationManager Navigation
@@ -13,7 +12,7 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
 <div class="card shadow-sm mb-4">
@@ -21,37 +20,28 @@
         <div class="row g-3 align-items-end">
             <div class="col-md-3">
                 <label class="form-label">Branch</label>
-                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
-                    <option value="">Select a branch</option>
-                    @foreach (var branch in _branches)
-                    {
-                        <option value="@branch.Id">@branch.Name</option>
-                    }
-                </select>
+                <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
             </div>
             <div class="col-md-3">
                 <label class="form-label">Service</label>
-                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
-                    <option value="">Select a service</option>
-                    @foreach (var service in _services)
-                    {
-                        <option value="@service.Id">@service.Name</option>
-                    }
-                </select>
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
             </div>
             <div class="col-md-3">
                 <label class="form-label">Counter Label</label>
-                <input class="form-control" @bind="_counterLabel" placeholder="Counter A" />
+                <BootstrapInput TValue="string" @bind-Value="_counterLabel" PlaceHolder="Counter A" />
                 <div class="form-text">The API currently resolves the counter label from user claims when calling next.</div>
             </div>
             <div class="col-md-3 d-grid">
-                <button class="btn btn-primary" @onclick="CallNextAsync" disabled="@(!_canOperate || _loadingAction)">
-                    @if (_loadingAction)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                    }
-                    <i class="bi bi-megaphone me-2"></i>Call Next
-                </button>
+                <Button Color="Color.Primary" Icon="bi bi-megaphone" Text="Call Next" OnClick="CallNextAsync" Disabled="@(!_canOperate || _loadingAction)" />
+            </div>
+        </div>
+        <div class="row g-3 align-items-end mt-1">
+            <div class="col-md-3">
+                <label class="form-label">Auto-Refresh Interval</label>
+                <Select TValue="int" Items="@RefreshIntervalItems" Value="@_autoRefreshSeconds" ValueChanged="@OnRefreshIntervalChangedAsync" />
+            </div>
+            <div class="col-md-3 d-grid">
+                <Button Color="Color.Secondary" Icon="bi bi-arrow-clockwise" Text="Refresh Now" OnClick="ManualRefreshAsync" Disabled="@(!_canOperate || _loadingQueue)" />
             </div>
         </div>
     </div>
@@ -60,7 +50,7 @@
 @if (_loadingQueue)
 {
     <div class="d-flex align-items-center gap-2 text-muted">
-        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <Spinner Color="Color.Secondary" />
         <span>Loading queue...</span>
     </div>
 }
@@ -83,8 +73,8 @@ else if (_queue is not null)
                         <div class="list-group list-group-flush">
                             @foreach (var ticket in _queue.WaitingTickets.OrderBy(t => t.QueuePosition))
                             {
-                                <div class="list-group-item px-0">
-                                    <div class="d-flex justify-content-between align-items-start">
+                                <div class="list-group-item px-3 py-2">
+                                    <div class="d-flex justify-content-between align-items-center">
                                         <div>
                                             <div class="fw-semibold">@ticket.TicketNumber</div>
                                             <div class="text-muted small">Position #@ticket.QueuePosition · @ticket.CustomerPhone</div>
@@ -114,15 +104,15 @@ else if (_queue is not null)
                         <div class="list-group list-group-flush">
                             @foreach (var ticket in _queue.CalledTickets)
                             {
-                                <div class="list-group-item px-0">
-                                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                                <div class="list-group-item px-3 py-2">
+                                    <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
                                         <div>
                                             <div class="fw-semibold">@ticket.TicketNumber</div>
                                             <div class="text-muted small">@ticket.CustomerPhone</div>
                                         </div>
-                                        <div class="btn-group btn-group-sm">
-                                            <button class="btn btn-success" @onclick="() => MarkServedAsync(ticket.TicketId)">Served</button>
-                                            <button class="btn btn-outline-danger" @onclick="() => MarkNoShowAsync(ticket.TicketId)">No-Show</button>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <Button Color="Color.Success" Size="Size.Small" Text="Served" OnClick="@(() => MarkServedAsync(ticket.TicketId))" />
+                                            <Button Color="Color.Danger" Size="Size.Small" Text="No-Show" OnClick="@(() => MarkNoShowAsync(ticket.TicketId))" />
                                         </div>
                                     </div>
                                 </div>
@@ -147,8 +137,25 @@ else if (_queue is not null)
     private bool _loadingQueue;
     private bool _loadingAction;
     private Guid _clerkId;
+    private int _autoRefreshSeconds = 0;
+    private System.Threading.Timer? _refreshTimer;
+
+    private static readonly IEnumerable<SelectedItem> RefreshIntervalItems =
+    [
+        new SelectedItem("0", "Off"),
+        new SelectedItem("5", "5 seconds"),
+        new SelectedItem("10", "10 seconds"),
+        new SelectedItem("30", "30 seconds"),
+        new SelectedItem("60", "60 seconds"),
+    ];
 
     private bool _canOperate => Guid.TryParse(_selectedBranchId, out _) && Guid.TryParse(_selectedServiceId, out _);
+
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
+
+    private IEnumerable<SelectedItem> ServiceItems =>
+        _services.Select(s => new SelectedItem(s.Id.ToString(), s.Name));
 
     protected override async Task OnInitializedAsync()
     {
@@ -185,12 +192,13 @@ else if (_queue is not null)
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         _selectedServiceId = null;
         _services.Clear();
         _queue = null;
+        RestartTimer();
         await DisposeHubAsync();
 
         if (!Guid.TryParse(_selectedBranchId, out var branchId))
@@ -211,11 +219,12 @@ else if (_queue is not null)
         }
     }
 
-    private async Task OnServiceChanged(ChangeEventArgs args)
+    private async Task OnServiceChangedAsync(string? value)
     {
-        _selectedServiceId = args.Value?.ToString();
+        _selectedServiceId = value;
         await RefreshQueueAsync();
         await ReconnectHubAsync();
+        RestartTimer();
     }
 
     private async Task RefreshQueueAsync()
@@ -312,6 +321,38 @@ else if (_queue is not null)
         }
     }
 
+    private async Task ManualRefreshAsync()
+    {
+        await RefreshQueueAsync();
+        RestartTimer();
+    }
+
+    private async Task OnRefreshIntervalChangedAsync(int value)
+    {
+        _autoRefreshSeconds = value;
+        RestartTimer();
+        await Task.CompletedTask;
+    }
+
+    private void RestartTimer()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+
+        if (_autoRefreshSeconds > 0 && _canOperate)
+        {
+            var interval = TimeSpan.FromSeconds(_autoRefreshSeconds);
+            _refreshTimer = new System.Threading.Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshQueueAsync();
+                    StateHasChanged();
+                });
+            }, null, interval, interval);
+        }
+    }
+
     private async Task ReconnectHubAsync()
     {
         await DisposeHubAsync();
@@ -364,5 +405,10 @@ else if (_queue is not null)
         _hub = null;
     }
 
-    public async ValueTask DisposeAsync() => await DisposeHubAsync();
+    public async ValueTask DisposeAsync()
+    {
+        _refreshTimer?.Dispose();
+        _refreshTimer = null;
+        await DisposeHubAsync();
+    }
 }

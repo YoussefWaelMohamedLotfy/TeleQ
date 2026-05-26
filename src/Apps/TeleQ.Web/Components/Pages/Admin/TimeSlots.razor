@@ -1,6 +1,5 @@
 @page "/admin/timeslots"
 @attribute [Authorize(Roles = "admin")]
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -10,7 +9,7 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
 <div class="card shadow-sm mb-4">
@@ -18,53 +17,93 @@
         <div class="row g-3 align-items-end">
             <div class="col-md-4">
                 <label class="form-label">Branch</label>
-                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select>
+                <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
             </div>
             <div class="col-md-4">
                 <label class="form-label">Service</label>
-                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())"><option value="">Select a service</option>@foreach (var service in _services){<option value="@service.Id">@service.Name</option>}</select>
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
             </div>
             <div class="col-md-4 d-grid">
-                <button class="btn btn-primary" @onclick="CreateNew" disabled="@(!Guid.TryParse(_selectedBranchId, out _) || !Guid.TryParse(_selectedServiceId, out _))"><i class="bi bi-plus-circle me-2"></i>Add Time Slot</button>
+                <Button Color="Color.Primary" Icon="bi bi-plus-circle" Text="Add Time Slot" OnClick="CreateNew" Disabled="@(!Guid.TryParse(_selectedBranchId, out _) || !Guid.TryParse(_selectedServiceId, out _))" />
             </div>
         </div>
     </div>
 </div>
 
-<div class="card shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Start</th><th>End</th><th>Capacity</th><th>Booked</th><th>Recurring</th><th>Day / Date</th><th class="text-end">Actions</th></tr></thead><tbody>@if (_timeSlots.Count == 0){<tr><td colspan="7" class="text-center text-muted py-4">Select a service to load time slots.</td></tr>}else{@foreach (var slot in _timeSlots){<tr><td>@slot.StartTime.ToString("HH:mm")</td><td>@slot.EndTime.ToString("HH:mm")</td><td>@slot.Capacity</td><td>@slot.BookedCount</td><td>@(slot.IsRecurring ? "Yes" : "No")</td><td>@(slot.IsRecurring ? slot.DayOfWeek?.ToString() : slot.Date?.ToShortDateString())</td><td class="text-end"><button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAsync(slot.Id)">Delete</button></td></tr>}}</tbody></table></div></div>
+<Table TItem="TimeSlotResponse" Items="@_timeSlots" IsBordered="true" IsStriped="true" IsResponsive="true"
+       CreateItemCallback="@(() => new TimeSlotResponse(Guid.Empty, Guid.Empty, Guid.Empty, TimeOnly.MinValue, TimeOnly.MinValue, 0, 0, false, false, null))">
+    <TableColumns>
+        <TableColumn Field="@context.StartTime" FieldExpression="@(() => context.StartTime)" Text="Start">
+            <Template Context="ctx">@ctx.Value.ToString("HH:mm")</Template>
+        </TableColumn>
+        <TableColumn Field="@context.EndTime" FieldExpression="@(() => context.EndTime)" Text="End">
+            <Template Context="ctx">@ctx.Value.ToString("HH:mm")</Template>
+        </TableColumn>
+        <TableColumn Field="@context.Capacity" FieldExpression="@(() => context.Capacity)" Text="Capacity" />
+        <TableColumn Field="@context.BookedCount" FieldExpression="@(() => context.BookedCount)" Text="Booked" />
+        <TableColumn Field="@context.IsRecurring" FieldExpression="@(() => context.IsRecurring)" Text="Recurring">
+            <Template Context="ctx">@(ctx.Value ? "Yes" : "No")</Template>
+        </TableColumn>
+        <TableColumn Field="@context.DayOfWeek" FieldExpression="@(() => context.DayOfWeek)" Text="Day / Date">
+            <Template Context="ctx">
+                @(ctx.Row.IsRecurring ? ctx.Row.DayOfWeek?.ToString() : ctx.Row.Date?.ToShortDateString())
+            </Template>
+        </TableColumn>
+        <TableColumn Field="@context.Id" FieldExpression="@(() => context.Id)" Text="Actions" Align="Alignment.Right">
+            <Template Context="ctx">
+                <Button Color="Color.Danger" Size="Size.Small" Text="Delete" OnClick="@(() => DeleteAsync(ctx.Row.Id))" />
+            </Template>
+        </TableColumn>
+    </TableColumns>
+</Table>
 
-@if (_showModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,.5)">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">Add Time Slot</h5><button type="button" class="btn-close" @onclick="CloseModal"></button></div>
-                <div class="modal-body">
-                    <div class="row g-3">
-                        <div class="col-md-6"><label class="form-label">Start Time</label><input type="text" class="form-control" placeholder="09:00" @bind="_startTime" /></div>
-                        <div class="col-md-6"><label class="form-label">End Time</label><input type="text" class="form-control" placeholder="09:30" @bind="_endTime" /></div>
-                        <div class="col-md-6"><label class="form-label">Capacity</label><input type="number" min="1" class="form-control" @bind="_capacity" /></div>
-                        <div class="col-md-6 d-flex align-items-end"><div class="form-check"><input id="recurringToggle" class="form-check-input" type="checkbox" @bind="_isRecurring" /><label class="form-check-label" for="recurringToggle">Recurring weekly slot</label></div></div>
-                        @if (_isRecurring)
-                        {
-                            <div class="col-12"><label class="form-label">Day of Week</label><select class="form-select" @bind="_dayOfWeek"><option value="">Select day</option>@foreach (var day in Enum.GetValues<DayOfWeek>()){<option value="@day">@day</option>}</select></div>
-                        }
-                        else
-                        {
-                            <div class="col-12"><label class="form-label">Specific Date</label><input type="text" class="form-control" placeholder="2025-01-31" @bind="_date" /></div>
-                        }
-                    </div>
+<Modal @ref="_modal">
+    <ModalDialog Title="Add Time Slot" ShowCloseButton="false">
+        <BodyTemplate>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Start Time</label>
+                    <input type="text" class="form-control" placeholder="09:00" @bind="_startTime" />
                 </div>
-                <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CloseModal">Cancel</button><button class="btn btn-primary" @onclick="SaveAsync">Save</button></div>
+                <div class="col-md-6">
+                    <label class="form-label">End Time</label>
+                    <input type="text" class="form-control" placeholder="09:30" @bind="_endTime" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Capacity</label>
+                    <input type="number" min="1" class="form-control" @bind="_capacity" />
+                </div>
+                <div class="col-md-6 d-flex align-items-end">
+                    <Switch @bind-Value="_isRecurring" ShowLabel="true" DisplayText="Recurring weekly" />
+                </div>
+                @if (_isRecurring)
+                {
+                    <div class="col-12">
+                        <label class="form-label">Day of Week</label>
+                        <Select TValue="string?" Items="@DayItems" Value="@_dayOfWeek" ValueChanged="@(v => _dayOfWeek = v)" PlaceHolder="Select day" />
+                    </div>
+                }
+                else
+                {
+                    <div class="col-12">
+                        <label class="form-label">Specific Date</label>
+                        <input type="text" class="form-control" placeholder="2025-01-31" @bind="_date" />
+                    </div>
+                }
             </div>
-        </div>
-    </div>
-}
+        </BodyTemplate>
+        <FooterContentTemplate>
+            <Button Color="Color.Secondary" Text="Cancel" OnClick="CloseModal" />
+            <Button Color="Color.Primary" Text="Save" OnClick="SaveAsync" />
+        </FooterContentTemplate>
+    </ModalDialog>
+</Modal>
 
 @code {
     private readonly List<BranchResponse> _branches = [];
     private readonly List<ServiceResponse> _services = [];
     private readonly List<TimeSlotResponse> _timeSlots = [];
+    private Modal? _modal;
     private string? _selectedBranchId;
     private string? _selectedServiceId;
     private string _startTime = "09:00";
@@ -74,7 +113,15 @@
     private string? _dayOfWeek;
     private string? _date;
     private string? _error;
-    private bool _showModal;
+
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
+
+    private IEnumerable<SelectedItem> ServiceItems =>
+        _services.Select(s => new SelectedItem(s.Id.ToString(), s.Name));
+
+    private IEnumerable<SelectedItem> DayItems =>
+        Enum.GetValues<DayOfWeek>().Select(d => new SelectedItem(d.ToString(), d.ToString()));
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,9 +138,9 @@
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         _selectedServiceId = null;
         _services.Clear();
         _timeSlots.Clear();
@@ -116,9 +163,9 @@
         }
     }
 
-    private async Task OnServiceChanged(ChangeEventArgs args)
+    private async Task OnServiceChangedAsync(string? value)
     {
-        _selectedServiceId = args.Value?.ToString();
+        _selectedServiceId = value;
         await LoadTimeSlotsAsync();
     }
 
@@ -143,7 +190,7 @@
         }
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
         _startTime = "09:00";
         _endTime = "09:30";
@@ -151,10 +198,10 @@
         _isRecurring = true;
         _dayOfWeek = DayOfWeek.Monday.ToString();
         _date = null;
-        _showModal = true;
+        await _modal!.Show();
     }
 
-    private void CloseModal() => _showModal = false;
+    private async Task CloseModal() => await _modal!.Close();
 
     private async Task SaveAsync()
     {
@@ -176,7 +223,7 @@
                 !_isRecurring && DateOnly.TryParse(_date, out var specificDate) ? specificDate : null);
 
             await Api.CreateTimeSlotAsync(serviceId, request);
-            _showModal = false;
+            await _modal!.Close();
             await LoadTimeSlotsAsync();
         }
         catch (HttpRequestException ex) when (HandleAuthFailure(ex))

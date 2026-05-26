@@ -1,6 +1,5 @@
 @page "/book"
 @attribute [AllowAnonymous]
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -11,7 +10,7 @@
 @if (_loading)
 {
     <div class="d-flex align-items-center gap-2 text-muted">
-        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <Spinner Color="Color.Secondary" />
         <span>Loading branches and services...</span>
     </div>
 }
@@ -19,12 +18,12 @@ else
 {
     @if (!string.IsNullOrWhiteSpace(_error))
     {
-        <div class="alert alert-danger">@_error</div>
+        <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
     }
 
     @if (!string.IsNullOrWhiteSpace(_success))
     {
-        <div class="alert alert-success">@_success</div>
+        <Alert Color="Color.Success">@_success</Alert>
     }
 
     <div class="card shadow-sm">
@@ -32,38 +31,20 @@ else
             <div class="row g-3">
                 <div class="col-md-4">
                     <label class="form-label">Phone Number</label>
-                    <input class="form-control" @bind="_phoneNumber" placeholder="01xxxxxxxxx" />
+                    <BootstrapInput TValue="string" @bind-Value="_phoneNumber" PlaceHolder="01xxxxxxxxx" />
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Branch</label>
-                    <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
-                        <option value="">Select a branch</option>
-                        @foreach (var branch in _branches)
-                        {
-                            <option value="@branch.Id">@branch.Name</option>
-                        }
-                    </select>
+                    <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Service</label>
-                    <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
-                        <option value="">Select a service</option>
-                        @foreach (var service in _services)
-                        {
-                            <option value="@service.Id">@service.Name (@service.EstimatedDurationMinutes min)</option>
-                        }
-                    </select>
+                    <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@(v => _selectedServiceId = v)" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
                 </div>
             </div>
 
             <div class="mt-4 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="SubmitAsync" disabled="@_submitting">
-                    @if (_submitting)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                    }
-                    <i class="bi bi-ticket me-2"></i>Issue Ticket
-                </button>
+                <Button Color="Color.Primary" Icon="bi bi-ticket" Text="Issue Ticket" OnClick="SubmitAsync" Disabled="@_submitting" />
                 <a class="btn btn-outline-secondary" href="/">Cancel</a>
             </div>
         </div>
@@ -80,6 +61,12 @@ else
     private string? _success;
     private bool _loading = true;
     private bool _submitting;
+
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
+
+    private IEnumerable<SelectedItem> ServiceItems =>
+        _services.Select(s => new SelectedItem(s.Id.ToString(), $"{s.Name} ({s.EstimatedDurationMinutes} min)"));
 
     protected override async Task OnInitializedAsync()
     {
@@ -105,9 +92,9 @@ else
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         _selectedServiceId = null;
         _services.Clear();
 
@@ -122,12 +109,6 @@ else
                 _error = ex.Message;
             }
         }
-    }
-
-    private Task OnServiceChanged(ChangeEventArgs args)
-    {
-        _selectedServiceId = args.Value?.ToString();
-        return Task.CompletedTask;
     }
 
     private async Task SubmitAsync()

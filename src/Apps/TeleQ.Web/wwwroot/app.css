@@ -1,0 +1,37 @@
+/* TeleQ sidebar brand — uses BootstrapBlazor's built-in .layout-banner / .layout-logo / .layout-title classes.
+   The library's CSS handles opacity transition automatically when is-collapsed is toggled. */
+
+/*
+  Register --bb-layout-sidebar-width as an animatable <length> property.
+  Without this, the browser cannot interpolate CSS variable changes so the
+  sidebar width snaps instead of animating, even though the library already
+  declares `transition: width .3s linear` on .layout-side.
+*/
+@property --bb-layout-sidebar-width {
+    syntax: '<length>';
+    inherits: true;
+    initial-value: 220px;
+}
+
+/* Animate menu item text opacity on collapse (library omits this transition) */
+.menu.is-vertical .menu-text {
+    transition: opacity .3s linear;
+}
+
+/* Style the icon-as-logo inside the banner */
+.layout-banner .layout-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    width: auto !important;
+    border: none !important;
+    background: none !important;
+    flex-shrink: 0;
+}
+
+.layout-banner .layout-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}

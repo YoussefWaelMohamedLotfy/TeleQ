@@ -1,7 +1,6 @@
 @page "/clerk/dashboard"
 @attribute [Authorize(Policy = "ClerkOrAdmin")]
 @implements IAsyncDisposable
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -11,7 +10,7 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
 <div class="card shadow-sm mb-4">
@@ -19,26 +18,14 @@
         <div class="row g-3">
             <div class="col-md-4">
                 <label class="form-label">Branch</label>
-                <select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged">
-                    <option value="">Select a branch</option>
-                    @foreach (var branch in _branches)
-                    {
-                        <option value="@branch.Id">@branch.Name</option>
-                    }
-                </select>
+                <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
             </div>
             <div class="col-md-4">
                 <label class="form-label">Service</label>
-                <select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())">
-                    <option value="">Select a service</option>
-                    @foreach (var service in _services)
-                    {
-                        <option value="@service.Id">@service.Name</option>
-                    }
-                </select>
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
             </div>
             <div class="col-md-4 d-flex align-items-end">
-                <button class="btn btn-outline-primary w-100" @onclick="RefreshAsync">Refresh Now</button>
+                <Button Color="Color.Secondary" Icon="bi bi-arrow-clockwise" Text="Refresh Now" OnClick="RefreshAsync" class="w-100" />
             </div>
         </div>
     </div>
@@ -62,6 +49,12 @@
     private PeriodicTimer? _timer;
     private CancellationTokenSource? _cts;
 
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
+
+    private IEnumerable<SelectedItem> ServiceItems =>
+        _services.Select(s => new SelectedItem(s.Id.ToString(), s.Name));
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -78,9 +71,9 @@
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         _selectedServiceId = null;
         _services.Clear();
         _queue = null;
@@ -104,9 +97,9 @@
         }
     }
 
-    private async Task OnServiceChanged(ChangeEventArgs args)
+    private async Task OnServiceChangedAsync(string? value)
     {
-        _selectedServiceId = args.Value?.ToString();
+        _selectedServiceId = value;
         await RefreshAsync();
     }
 
