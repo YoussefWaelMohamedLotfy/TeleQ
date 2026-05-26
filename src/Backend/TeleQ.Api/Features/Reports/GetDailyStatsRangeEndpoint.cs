@@ -9,7 +9,7 @@ namespace TeleQ.Api.Features.Reports;
 
 /// <summary>Returns daily queue statistics across a date range for a branch and service. Restricted to Admin users.</summary>
 public sealed class GetDailyStatsRangeEndpoint(IDocumentSession session, HybridCache cache)
-    : EndpointWithoutRequest<List<DailyQueueStats>>
+    : Endpoint<DailyStatsRangeRequest, List<DailyQueueStats>>
 {
     public override void Configure()
     {
@@ -20,36 +20,34 @@ public sealed class GetDailyStatsRangeEndpoint(IDocumentSession session, HybridC
         Options(x => x.WithVersionSet("TeleQ").MapToApiVersion(1.0));
     }
 
-    public override async Task HandleAsync(CancellationToken ct)
+    public override async Task HandleAsync(DailyStatsRangeRequest req, CancellationToken ct)
     {
-        var branchId = Query<Guid>("branchId");
-        var serviceId = Query<Guid>("serviceId");
-        var from = Query<DateOnly?>("from") ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-6).Date);
-        var to = Query<DateOnly?>("to") ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var from = req.From ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-6).Date);
+        var to = req.To ?? DateOnly.FromDateTime(DateTime.UtcNow.Date);
 
         var result = await cache.GetOrCreateAsync(
-            CacheKeys.DailyStatsRange(from, to, branchId, serviceId),
+            CacheKeys.DailyStatsRange(from, to, req.BranchId, req.ServiceId),
             async ct =>
             {
                 var results = new List<DailyQueueStats>();
 
                 for (var day = from; day <= to; day = day.AddDays(1))
                 {
-                    var statsId = $"{day:yyyyMMdd}:{branchId}:{serviceId}";
+                    var statsId = $"{day:yyyyMMdd}:{req.BranchId}:{req.ServiceId}";
                     var stats = await session.LoadAsync<DailyQueueStats>(statsId, ct);
                     results.Add(stats ?? new DailyQueueStats
                     {
                         Id = statsId,
                         Date = day,
-                        BranchId = branchId,
-                        ServiceId = serviceId
+                        BranchId = req.BranchId,
+                        ServiceId = req.ServiceId
                     });
                 }
 
                 return results;
             },
             CacheOptions.Stats,
-            CacheKeys.StatsTags(branchId, serviceId),
+            CacheKeys.StatsTags(req.BranchId, req.ServiceId),
             ct);
 
         await Send.OkAsync(result, ct);
