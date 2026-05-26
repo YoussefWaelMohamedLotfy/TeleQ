@@ -1,6 +1,5 @@
 @page "/admin/branches"
 @attribute [Authorize(Roles = "admin")]
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -10,94 +9,71 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <p class="text-muted mb-0">Manage active branches and contact information.</p>
-    <button class="btn btn-primary" @onclick="CreateNew"><i class="bi bi-plus-circle me-2"></i>Add Branch</button>
+    <Button Color="Color.Primary" Icon="bi bi-plus-circle" Text="Add Branch" OnClick="CreateNew" />
 </div>
 
-<div class="card shadow-sm">
-    <div class="table-responsive">
-        <table class="table align-middle mb-0">
-            <thead class="table-light">
-                <tr>
-                    <th>Name</th>
-                    <th>Address</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                    <th class="text-end">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_branches.Count == 0)
-                {
-                    <tr><td colspan="5" class="text-center text-muted py-4">No branches found.</td></tr>
-                }
-                else
-                {
-                    @foreach (var branch in _branches)
-                    {
-                        <tr>
-                            <td class="fw-semibold">@branch.Name</td>
-                            <td>@branch.Address</td>
-                            <td>@(branch.PhoneNumber ?? "—")</td>
-                            <td><span class="badge bg-success-subtle text-success-emphasis">@(branch.IsActive ? "Active" : "Inactive")</span></td>
-                            <td class="text-end">
-                                <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-primary" @onclick="() => EditBranch(branch)">Edit</button>
-                                    <button class="btn btn-outline-danger" @onclick="() => DeleteBranchAsync(branch.Id)">Delete</button>
-                                </div>
-                            </td>
-                        </tr>
-                    }
-                }
-            </tbody>
-        </table>
-    </div>
-</div>
+<Table TItem="BranchResponse" Items="@_branches" IsBordered="true" IsStriped="true" IsResponsive="true"
+       CreateItemCallback="@(() => new BranchResponse(Guid.Empty, string.Empty, string.Empty, null, false))">
+    <TableColumns>
+        <TableColumn Field="@context.Name" FieldExpression="@(() => context.Name)" Text="Name" />
+        <TableColumn Field="@context.Address" FieldExpression="@(() => context.Address)" Text="Address" />
+        <TableColumn Field="@context.PhoneNumber" FieldExpression="@(() => context.PhoneNumber)" Text="Phone">
+            <Template Context="ctx">@(ctx.Value ?? "—")</Template>
+        </TableColumn>
+        <TableColumn Field="@context.IsActive" FieldExpression="@(() => context.IsActive)" Text="Status">
+            <Template Context="ctx">
+                <span class="badge @(ctx.Value ? "bg-success-subtle text-success-emphasis" : "bg-secondary-subtle text-secondary-emphasis")">
+                    @(ctx.Value ? "Active" : "Inactive")
+                </span>
+            </Template>
+        </TableColumn>
+        <TableColumn Field="@context.Id" FieldExpression="@(() => context.Id)" Text="Actions" Align="Alignment.Right">
+            <Template Context="ctx">
+                <div class="d-flex gap-1 justify-content-end">
+                    <Button Color="Color.Primary" Size="Size.Small" Text="Edit" OnClick="@(() => EditBranch(ctx.Row))" />
+                    <Button Color="Color.Danger" Size="Size.Small" Text="Delete" OnClick="@(() => DeleteBranchAsync(ctx.Row.Id))" />
+                </div>
+            </Template>
+        </TableColumn>
+    </TableColumns>
+</Table>
 
-@if (_showModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,.5)">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">@(_editingId is null ? "Add Branch" : "Edit Branch")</h5>
-                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Name</label>
-                        <input class="form-control" @bind="_name" />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Address</label>
-                        <input class="form-control" @bind="_address" />
-                    </div>
-                    <div>
-                        <label class="form-label">Phone Number</label>
-                        <input class="form-control" @bind="_phone" />
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-outline-secondary" @onclick="CloseModal">Cancel</button>
-                    <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
-                </div>
+<Modal @ref="_modal">
+    <ModalDialog Title="@(_editingId is null ? "Add Branch" : "Edit Branch")" ShowCloseButton="false">
+        <BodyTemplate>
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <BootstrapInput TValue="string" @bind-Value="_name" PlaceHolder="Branch name" />
             </div>
-        </div>
-    </div>
-}
+            <div class="mb-3">
+                <label class="form-label">Address</label>
+                <BootstrapInput TValue="string" @bind-Value="_address" PlaceHolder="Branch address" />
+            </div>
+            <div>
+                <label class="form-label">Phone Number</label>
+                <BootstrapInput TValue="string?" @bind-Value="_phone" PlaceHolder="Phone (optional)" />
+            </div>
+        </BodyTemplate>
+        <FooterContentTemplate>
+            <Button Color="Color.Secondary" Text="Cancel" OnClick="CloseModal" />
+            <Button Color="Color.Primary" Text="Save" OnClick="SaveAsync" />
+        </FooterContentTemplate>
+    </ModalDialog>
+</Modal>
 
 @code {
     private readonly List<BranchResponse> _branches = [];
+    private Modal? _modal;
     private Guid? _editingId;
     private string _name = string.Empty;
     private string _address = string.Empty;
     private string? _phone;
     private string? _error;
-    private bool _showModal;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
@@ -117,25 +93,25 @@
         }
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
         _editingId = null;
         _name = string.Empty;
         _address = string.Empty;
         _phone = null;
-        _showModal = true;
+        await _modal!.Show();
     }
 
-    private void EditBranch(BranchResponse branch)
+    private async Task EditBranch(BranchResponse branch)
     {
         _editingId = branch.Id;
         _name = branch.Name;
         _address = branch.Address;
         _phone = branch.PhoneNumber;
-        _showModal = true;
+        await _modal!.Show();
     }
 
-    private void CloseModal() => _showModal = false;
+    private async Task CloseModal() => await _modal!.Close();
 
     private async Task SaveAsync()
     {
@@ -150,7 +126,7 @@
                 await Api.UpdateBranchAsync(_editingId.Value, new UpdateBranchRequest(_name, _address, _phone, true));
             }
 
-            _showModal = false;
+            await _modal!.Close();
             await LoadAsync();
         }
         catch (HttpRequestException ex) when (HandleAuthFailure(ex))

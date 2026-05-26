@@ -1,6 +1,5 @@
 @page "/admin/reports"
 @attribute [Authorize(Roles = "admin")]
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -10,10 +9,57 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
-<div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3 align-items-end"><div class="col-md-5"><label class="form-label">Branch</label><select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select></div><div class="col-md-5"><label class="form-label">Service</label><select class="form-select" value="@_selectedServiceId" @onchange="OnServiceChanged" disabled="@(!_services.Any())"><option value="">Select a service</option>@foreach (var service in _services){<option value="@service.Id">@service.Name</option>}</select></div><div class="col-md-2 d-grid"><button class="btn btn-outline-primary" @onclick="LoadStatsAsync">Refresh</button></div></div></div></div>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Branch</label>
+                <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
+            </div>
+            <div class="col-md-5">
+                <label class="form-label">Service</label>
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
+            </div>
+            <div class="col-md-2 d-grid">
+                <Button Color="Color.Secondary" Icon="bi bi-arrow-clockwise" Text="Refresh" OnClick="LoadStatsAsync" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Total Issued</div><div class="display-6">@(_stats?.TotalIssued ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Served</div><div class="display-6">@(_stats?.TotalServed ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">No-Show</div><div class="display-6">@(_stats?.TotalNoShow ?? 0)</div></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Cancelled</div><div class="display-6">@(_stats?.TotalCancelled ?? 0)</div></div></div></div>
+</div>
+
+@if (_stats is not null)
+{
+    var total = Math.Max(_stats.TotalIssued, 1);
+    var servedWidth = _stats.TotalServed * 100d / total;
+    var noShowWidth = _stats.TotalNoShow * 100d / total;
+    var cancelledWidth = _stats.TotalCancelled * 100d / total;
+
+    <div class="card shadow-sm mt-4">
+        <div class="card-body">
+            <h5 class="card-title">Daily Breakdown</h5>
+            <div class="progress-stacked mb-3" style="height: 1.5rem;">
+                <div class="progress" role="progressbar" style="width: @servedWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-success">Served</div></div>
+                <div class="progress" role="progressbar" style="width: @noShowWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-warning text-dark">No-Show</div></div>
+                <div class="progress" role="progressbar" style="width: @cancelledWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)%"><div class="progress-bar bg-danger">Cancelled</div></div>
+            </div>
+            <div class="row text-center g-3">
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Appointments</div><div>@_stats.TotalAppointments</div></div></div>
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Walk-Ins</div><div>@_stats.TotalWalkIns</div></div></div>
+                <div class="col-md-4"><div class="border rounded p-3"><div class="fw-semibold">Average Wait</div><div>@_stats.AverageWaitMinutes.ToString("0.0") min</div></div></div>
+            </div>
+        </div>
+    </div>
+}
 
 <div class="row g-4">
     <div class="col-md-3"><div class="card shadow-sm h-100"><div class="card-body"><div class="text-muted small">Total Issued</div><div class="display-6">@(_stats?.TotalIssued ?? 0)</div></div></div></div>
@@ -54,6 +100,12 @@
     private string? _selectedServiceId;
     private string? _error;
 
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
+
+    private IEnumerable<SelectedItem> ServiceItems =>
+        _services.Select(s => new SelectedItem(s.Id.ToString(), s.Name));
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -69,9 +121,9 @@
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         _selectedServiceId = null;
         _services.Clear();
         _stats = null;
@@ -94,9 +146,9 @@
         }
     }
 
-    private async Task OnServiceChanged(ChangeEventArgs args)
+    private async Task OnServiceChangedAsync(string? value)
     {
-        _selectedServiceId = args.Value?.ToString();
+        _selectedServiceId = value;
         await LoadStatsAsync();
     }
 

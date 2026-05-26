@@ -1,6 +1,5 @@
 @page "/admin/services"
 @attribute [Authorize(Roles = "admin")]
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject NavigationManager Navigation
 
@@ -10,40 +9,87 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
-<div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3 align-items-end"><div class="col-md-6"><label class="form-label">Branch</label><select class="form-select" value="@_selectedBranchId" @onchange="OnBranchChanged"><option value="">Select a branch</option>@foreach (var branch in _branches){<option value="@branch.Id">@branch.Name</option>}</select></div><div class="col-md-6 d-grid"><button class="btn btn-primary" @onclick="CreateNew" disabled="@(!Guid.TryParse(_selectedBranchId, out _))"><i class="bi bi-plus-circle me-2"></i>Add Service</button></div></div></div></div>
-
-<div class="card shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Name</th><th>Description</th><th>Duration</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody>@if (_services.Count == 0){<tr><td colspan="5" class="text-center text-muted py-4">Select a branch to manage services.</td></tr>}else{@foreach (var service in _services){<tr><td class="fw-semibold">@service.Name</td><td>@(service.Description ?? "—")</td><td>@service.EstimatedDurationMinutes min</td><td><span class="badge bg-success-subtle text-success-emphasis">@(service.IsActive ? "Active" : "Inactive")</span></td><td class="text-end"><div class="btn-group btn-group-sm"><button class="btn btn-outline-primary" @onclick="() => EditService(service)">Edit</button><button class="btn btn-outline-danger" @onclick="() => DeleteServiceAsync(service.Id)">Delete</button></div></td></tr>}}</tbody></table></div></div>
-
-@if (_showModal)
-{
-    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,.5)">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">@(_editingId is null ? "Add Service" : "Edit Service")</h5><button type="button" class="btn-close" @onclick="CloseModal"></button></div>
-                <div class="modal-body">
-                    <div class="mb-3"><label class="form-label">Name</label><input class="form-control" @bind="_name" /></div>
-                    <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" rows="3" @bind="_description"></textarea></div>
-                    <div><label class="form-label">Estimated Duration (minutes)</label><input type="number" min="1" class="form-control" @bind="_estimatedDurationMinutes" /></div>
-                </div>
-                <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CloseModal">Cancel</button><button class="btn btn-primary" @onclick="SaveAsync">Save</button></div>
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">Branch</label>
+                <Select TValue="string?" Items="@BranchItems" Value="@_selectedBranchId" ValueChanged="@OnBranchChangedAsync" PlaceHolder="Select a branch" />
+            </div>
+            <div class="col-md-6 d-grid">
+                <Button Color="Color.Primary" Icon="bi bi-plus-circle" Text="Add Service" OnClick="CreateNew" Disabled="@(!Guid.TryParse(_selectedBranchId, out _))" />
             </div>
         </div>
     </div>
-}
+</div>
+
+<Table TItem="ServiceResponse" Items="@_services" IsBordered="true" IsStriped="true" IsResponsive="true"
+       CreateItemCallback="@(() => new ServiceResponse(Guid.Empty, string.Empty, null, 0, Guid.Empty, false))">
+    <TableColumns>
+        <TableColumn Field="@context.Name" FieldExpression="@(() => context.Name)" Text="Name" />
+        <TableColumn Field="@context.Description" FieldExpression="@(() => context.Description)" Text="Description">
+            <Template Context="ctx">@(ctx.Value ?? "—")</Template>
+        </TableColumn>
+        <TableColumn Field="@context.EstimatedDurationMinutes" FieldExpression="@(() => context.EstimatedDurationMinutes)" Text="Duration">
+            <Template Context="ctx">@ctx.Value min</Template>
+        </TableColumn>
+        <TableColumn Field="@context.IsActive" FieldExpression="@(() => context.IsActive)" Text="Status">
+            <Template Context="ctx">
+                <span class="badge @(ctx.Value ? "bg-success-subtle text-success-emphasis" : "bg-secondary-subtle text-secondary-emphasis")">
+                    @(ctx.Value ? "Active" : "Inactive")
+                </span>
+            </Template>
+        </TableColumn>
+        <TableColumn Field="@context.Id" FieldExpression="@(() => context.Id)" Text="Actions" Align="Alignment.Right">
+            <Template Context="ctx">
+                <div class="d-flex gap-1 justify-content-end">
+                    <Button Color="Color.Primary" Size="Size.Small" Text="Edit" OnClick="@(() => EditService(ctx.Row))" />
+                    <Button Color="Color.Danger" Size="Size.Small" Text="Delete" OnClick="@(() => DeleteServiceAsync(ctx.Row.Id))" />
+                </div>
+            </Template>
+        </TableColumn>
+    </TableColumns>
+</Table>
+
+<Modal @ref="_modal">
+    <ModalDialog Title="@(_editingId is null ? "Add Service" : "Edit Service")" ShowCloseButton="false">
+        <BodyTemplate>
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <BootstrapInput TValue="string" @bind-Value="_name" PlaceHolder="Service name" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Description</label>
+                <textarea class="form-control" rows="3" @bind="_description" placeholder="Description (optional)"></textarea>
+            </div>
+            <div>
+                <label class="form-label">Estimated Duration (minutes)</label>
+                <input type="number" min="1" class="form-control" @bind="_estimatedDurationMinutes" />
+            </div>
+        </BodyTemplate>
+        <FooterContentTemplate>
+            <Button Color="Color.Secondary" Text="Cancel" OnClick="CloseModal" />
+            <Button Color="Color.Primary" Text="Save" OnClick="SaveAsync" />
+        </FooterContentTemplate>
+    </ModalDialog>
+</Modal>
 
 @code {
     private readonly List<BranchResponse> _branches = [];
     private readonly List<ServiceResponse> _services = [];
+    private Modal? _modal;
     private string? _selectedBranchId;
     private Guid? _editingId;
     private string _name = string.Empty;
     private string? _description;
     private int _estimatedDurationMinutes = 10;
     private string? _error;
-    private bool _showModal;
+
+    private IEnumerable<SelectedItem> BranchItems =>
+        _branches.Select(b => new SelectedItem(b.Id.ToString(), b.Name));
 
     protected override async Task OnInitializedAsync()
     {
@@ -60,9 +106,9 @@
         }
     }
 
-    private async Task OnBranchChanged(ChangeEventArgs args)
+    private async Task OnBranchChangedAsync(string? value)
     {
-        _selectedBranchId = args.Value?.ToString();
+        _selectedBranchId = value;
         await LoadServicesAsync();
     }
 
@@ -87,25 +133,25 @@
         }
     }
 
-    private void CreateNew()
+    private async Task CreateNew()
     {
         _editingId = null;
         _name = string.Empty;
         _description = null;
         _estimatedDurationMinutes = 10;
-        _showModal = true;
+        await _modal!.Show();
     }
 
-    private void EditService(ServiceResponse service)
+    private async Task EditService(ServiceResponse service)
     {
         _editingId = service.Id;
         _name = service.Name;
         _description = service.Description;
         _estimatedDurationMinutes = service.EstimatedDurationMinutes;
-        _showModal = true;
+        await _modal!.Show();
     }
 
-    private void CloseModal() => _showModal = false;
+    private async Task CloseModal() => await _modal!.Close();
 
     private async Task SaveAsync()
     {
@@ -126,7 +172,7 @@
                 await Api.UpdateServiceAsync(_editingId.Value, new UpdateServiceRequest(_name, _description, _estimatedDurationMinutes, true));
             }
 
-            _showModal = false;
+            await _modal!.Close();
             await LoadServicesAsync();
         }
         catch (HttpRequestException ex) when (HandleAuthFailure(ex))

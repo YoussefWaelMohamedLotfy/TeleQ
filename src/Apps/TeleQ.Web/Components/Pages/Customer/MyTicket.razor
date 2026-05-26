@@ -1,7 +1,6 @@
 @page "/ticket/{Id:guid}"
 @attribute [AllowAnonymous]
 @implements IAsyncDisposable
-@rendermode InteractiveServer
 @inject TeleQApiClient Api
 @inject HubConnectionFactory HubConnectionFactory
 
@@ -11,7 +10,7 @@
 
 @if (!string.IsNullOrWhiteSpace(_error))
 {
-    <div class="alert alert-danger">@_error</div>
+    <Alert Color="Color.Danger" ShowDismiss="true">@_error</Alert>
 }
 
 @if (!_verified)
@@ -22,16 +21,10 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-6">
                     <label class="form-label">Phone Number</label>
-                    <input class="form-control" @bind="_phoneNumber" placeholder="01xxxxxxxxx" />
+                    <BootstrapInput TValue="string" @bind-Value="_phoneNumber" PlaceHolder="01xxxxxxxxx" />
                 </div>
                 <div class="col-md-3">
-                    <button class="btn btn-primary w-100" @onclick="VerifyAsync" disabled="@_loading">
-                        @if (_loading)
-                        {
-                            <span class="spinner-border spinner-border-sm me-2"></span>
-                        }
-                        Verify
-                    </button>
+                    <Button Color="Color.Primary" Text="Verify" OnClick="VerifyAsync" Disabled="@_loading" class="w-100" />
                 </div>
             </div>
         </div>
@@ -40,7 +33,7 @@
 else if (_ticket is null)
 {
     <div class="d-flex align-items-center gap-2 text-muted">
-        <div class="spinner-border spinner-border-sm" role="status"></div>
+        <Spinner Color="Color.Secondary" />
         <span>Loading ticket status...</span>
     </div>
 }
@@ -48,9 +41,7 @@ else
 {
     @if (!string.IsNullOrWhiteSpace(_calledAlert))
     {
-        <div class="alert alert-warning border-3 border-warning shadow-sm fs-5">
-            <i class="bi bi-megaphone-fill me-2"></i>@_calledAlert
-        </div>
+        <Alert Color="Color.Warning" Icon="bi bi-megaphone-fill">@_calledAlert</Alert>
     }
 
     <div class="row g-4">
