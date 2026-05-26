@@ -21,7 +21,7 @@
             </div>
             <div class="col-md-5">
                 <label class="form-label">Service</label>
-                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" IsDisabled="@(!_services.Any())" />
             </div>
             <div class="col-md-2 d-grid">
                 <Button Color="Color.Secondary" Icon="bi bi-arrow-clockwise" Text="Refresh" OnClick="LoadStatsAsync" />
