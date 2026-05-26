@@ -9,6 +9,7 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 
 builder.Services.AddBootstrapBlazor();
+builder.Services.ConfigureIconThemeOptions(options => options.ThemeKey = "bootstrap");
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();

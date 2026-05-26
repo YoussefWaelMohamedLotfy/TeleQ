@@ -39,7 +39,7 @@ else
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Service</label>
-                    <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@(v => _selectedServiceId = v)" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
+                    <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@(v => _selectedServiceId = v)" PlaceHolder="Select a service" IsDisabled="@(string.IsNullOrEmpty(_selectedBranchId))" />
                 </div>
             </div>
 

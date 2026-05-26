@@ -39,11 +39,11 @@ else
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Service</label>
-                    <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
+                    <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" IsDisabled="@(string.IsNullOrEmpty(_selectedBranchId))" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Time Slot</label>
-                    <Select TValue="string?" Items="@TimeSlotItems" Value="@_selectedTimeSlotId" ValueChanged="@(v => _selectedTimeSlotId = v)" PlaceHolder="Select a time slot" Disabled="@(!_timeSlots.Any())" />
+                    <Select TValue="string?" Items="@TimeSlotItems" Value="@_selectedTimeSlotId" ValueChanged="@(v => _selectedTimeSlotId = v)" PlaceHolder="Select a time slot" IsDisabled="@(string.IsNullOrEmpty(_selectedServiceId))" />
                 </div>
             </div>
 

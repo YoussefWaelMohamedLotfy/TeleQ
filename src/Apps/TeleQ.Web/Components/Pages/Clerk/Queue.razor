@@ -24,12 +24,16 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label">Service</label>
-                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" Disabled="@(!_services.Any())" />
+                <Select TValue="string?" Items="@ServiceItems" Value="@_selectedServiceId" ValueChanged="@OnServiceChangedAsync" PlaceHolder="Select a service" IsDisabled="@(string.IsNullOrEmpty(_selectedBranchId))" />
             </div>
             <div class="col-md-3">
-                <label class="form-label">Counter Label</label>
+                <label class="form-label d-flex align-items-center gap-1">
+                    Counter Label
+                    <Tooltip Title="The API currently resolves the counter label from user claims when calling next." Placement="Placement.Top">
+                        <i class="bi bi-info-circle text-muted"></i>
+                    </Tooltip>
+                </label>
                 <BootstrapInput TValue="string" @bind-Value="_counterLabel" PlaceHolder="Counter A" />
-                <div class="form-text">The API currently resolves the counter label from user claims when calling next.</div>
             </div>
             <div class="col-md-3 d-grid">
                 <Button Color="Color.Primary" Icon="bi bi-megaphone" Text="Call Next" OnClick="CallNextAsync" Disabled="@(!_canOperate || _loadingAction)" />
