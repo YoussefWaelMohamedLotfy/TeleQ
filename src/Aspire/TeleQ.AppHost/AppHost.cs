@@ -17,6 +17,18 @@ var postgres = builder
 var teleqDb = postgres.AddDatabase("TeleQ-Db");
 var KeycloakDb = postgres.AddDatabase("Keycloak-Db");
 
+builder
+    .AddContainer("postgres-mcp", "crystaldba/postgres-mcp")
+    .WithHttpEndpoint(port: 8083, targetPort: 8000)
+    .WithEnvironment("DATABASE_URI", teleqDb.Resource.UriExpression)
+    .WithArgs("--access-mode=unrestricted")
+    .WithArgs("--transport=sse")
+    .WaitFor(teleqDb)
+    .WithParentRelationship(postgres)
+    .WithIconName("WindowDevTools")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .ExcludeFromManifest();
+
 var keycloak = builder
     .AddKeycloak("keycloak", 8081, adminPassword: adminPassword)
     .WithImageTag("latest")
@@ -25,16 +37,23 @@ var keycloak = builder
     .WithRealmImport("./Realms")
     .WithLifetime(ContainerLifetime.Persistent);
 
+var rabbitmq = builder.AddRabbitMQ("rabbitmq", password: adminPassword, port: 5672)
+    .WithImageTag("management-alpine")
+    .WithManagementPlugin(15672)
+    .WithLifetime(ContainerLifetime.Persistent);
+
 var api = builder
     .AddProject<Projects.TeleQ_Api>("api")
     .WithReference(teleqDb)
     .WithReference(keycloak)
     .WithReference(garnet)
+    .WithReference(rabbitmq)
     .WaitFor(teleqDb)
     .WaitFor(keycloak)
+    .WaitFor(rabbitmq)
     .WaitFor(garnet);
 
-var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", secret: true);
+var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", true);
 
 var ngrok = builder.AddNgrok("ngrok", endpointPort: 4040)
     .WithImageTag("alpine")
@@ -53,12 +72,19 @@ var apiMigrations = api.AddEFMigrations("api-migrations", "TeleQ.Api.Data.AppDbC
 api.WaitForCompletion(apiMigrations)
     .WithChildRelationship(apiMigrations);
 
-_ = builder
+var blazor = builder
     .AddProject<Projects.TeleQ_Web>("blazor")
     .WithReference(api)
     .WithReference(keycloak)
     .WithReference(garnet)
     .WaitFor(api)
     .WaitFor(garnet);
+
+api.WithEnvironment("TelegramBot__FrontendBaseUrl", blazor.GetEndpoint("https"));
+
+builder.AddProject<Projects.TeleQ_Messaging_Worker>("teleq-messaging-worker")
+    .WithReference(rabbitmq)
+    .WaitFor(ngrok)
+    .WaitFor(rabbitmq);
 
 await builder.Build().RunAsync();

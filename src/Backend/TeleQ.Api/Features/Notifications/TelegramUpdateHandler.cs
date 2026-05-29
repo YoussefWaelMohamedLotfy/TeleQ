@@ -1,10 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using TeleQ.Api.Common;
 using TeleQ.Api.Common.Aggregates;
@@ -26,7 +28,8 @@ namespace TeleQ.Api.Features.Notifications;
 public sealed partial class TelegramUpdateHandler(
     ILogger<TelegramUpdateHandler> logger,
     IServiceScopeFactory scopeFactory,
-    HybridCache cache) : IUpdateHandler
+    HybridCache cache,
+    IOptions<TelegramBotOptions> telegramOptions) : IUpdateHandler
 {
     private static readonly Regex PhoneRegex = GetPhoneRegex();
 
@@ -416,7 +419,8 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery,
             BuildWalkInConfirmationMessage(service.BranchName, service.Name, ticket),
             null,
-            ct);
+            ct,
+            ParseMode.Html);
     }
 
     private async Task HandleServiceSelectionForAppointmentAsync(
@@ -561,7 +565,8 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery,
             BuildAppointmentConfirmationMessage(service.BranchName, service.Name, slot, ticket),
             null,
-            ct);
+            ct,
+            ParseMode.Html);
     }
 
     private async Task HandlePhoneNumberAsync(
@@ -586,7 +591,7 @@ public sealed partial class TelegramUpdateHandler(
                     var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
                     var ticket = await IssueWalkInTicketAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, phone, ct);
                     ClearContext(message.Chat.Id);
-                    await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), cancellationToken: ct);
+                    await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), parseMode: ParseMode.Html, cancellationToken: ct);
                     return;
                 }
             case "appointment" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue && context.SelectedTimeSlotId.HasValue:
@@ -596,7 +601,7 @@ public sealed partial class TelegramUpdateHandler(
                         ?? throw new InvalidOperationException("The selected time slot could not be found.");
                     var ticket = await BookAppointmentAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, context.SelectedTimeSlotId.Value, phone, ct);
                     ClearContext(message.Chat.Id);
-                    await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), cancellationToken: ct);
+                    await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), parseMode: ParseMode.Html, cancellationToken: ct);
                     return;
                 }
             case "status":
@@ -651,7 +656,7 @@ public sealed partial class TelegramUpdateHandler(
         {
             customer = new TelegramCustomer
             {
-                Id = Guid.NewGuid(),
+                Id = Guid.CreateVersion7(),
                 TelegramChatId = chatId,
                 PhoneNumber = phoneNumber,
                 RegisteredAt = now,
@@ -759,7 +764,7 @@ public sealed partial class TelegramUpdateHandler(
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"A-{queuePosition:D3}";
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
 
         var evt = new TicketIssued(
             TicketId: ticketId,
@@ -809,7 +814,7 @@ public sealed partial class TelegramUpdateHandler(
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"B-{queuePosition:D3}";
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
 
         var evt = new AppointmentBooked(
             TicketId: ticketId,
@@ -929,10 +934,7 @@ public sealed partial class TelegramUpdateHandler(
         if (ticket.TimeSlotId.HasValue)
         {
             var slot = await db.TimeSlots.FirstOrDefaultAsync(x => x.Id == ticket.TimeSlotId.Value, ct);
-            if (slot is not null)
-            {
-                slot.BookedCount = Math.Max(0, slot.BookedCount - 1);
-            }
+            slot?.BookedCount = Math.Max(0, slot.BookedCount - 1);
         }
 
         var evt = new TicketCancelled(
@@ -980,24 +982,41 @@ public sealed partial class TelegramUpdateHandler(
                 InlineKeyboardButton.WithCallbackData(FormatSlot(slot), $"slot_apt:{slot.Id}")
             }));
 
-    private static string BuildWalkInConfirmationMessage(string branchName, string serviceName, Ticket ticket) =>
-        $"""
-        ✅ Walk-in ticket issued.
-        Ticket: {ticket.TicketNumber}
-        Branch: {branchName}
-        Service: {serviceName}
-        Queue position: {ticket.QueuePosition}
-        """;
+    private string BuildWalkInConfirmationMessage(string branchName, string serviceName, Ticket ticket)
+    {
+        var message = $"""
+            ✅ Walk-in ticket issued.
+            Ticket: {HtmlEscape(ticket.TicketNumber)}
+            Branch: {HtmlEscape(branchName)}
+            Service: {HtmlEscape(serviceName)}
+            Queue position: {ticket.QueuePosition}
+            """;
 
-    private static string BuildAppointmentConfirmationMessage(string branchName, string serviceName, Data.Entities.TimeSlot slot, Ticket ticket) =>
-        $"""
-        ✅ Appointment booked.
-        Ticket: {ticket.TicketNumber}
-        Branch: {branchName}
-        Service: {serviceName}
-        Slot: {FormatSlot(slot)}
-        Queue position: {ticket.QueuePosition}
-        """;
+        var baseUrl = telegramOptions.Value.FrontendBaseUrl?.TrimEnd('/');
+        return string.IsNullOrWhiteSpace(baseUrl)
+            ? message
+            : $"{message}\n<a href=\"{baseUrl}/ticket/{ticket.Id}\">🔗 View your ticket</a>";
+    }
+
+    private string BuildAppointmentConfirmationMessage(string branchName, string serviceName, Data.Entities.TimeSlot slot, Ticket ticket)
+    {
+        var message = $"""
+            ✅ Appointment booked.
+            Ticket: {HtmlEscape(ticket.TicketNumber)}
+            Branch: {HtmlEscape(branchName)}
+            Service: {HtmlEscape(serviceName)}
+            Slot: {HtmlEscape(FormatSlot(slot))}
+            Queue position: {ticket.QueuePosition}
+            """;
+
+        var baseUrl = telegramOptions.Value.FrontendBaseUrl?.TrimEnd('/');
+        return string.IsNullOrWhiteSpace(baseUrl)
+            ? message
+            : $"{message}\n<a href=\"{baseUrl}/ticket/{ticket.Id}\">🔗 View your ticket</a>";
+    }
+
+    private static string HtmlEscape(string text) =>
+        text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
     private static string FormatSlot(Data.Entities.TimeSlot slot)
     {
@@ -1011,11 +1030,12 @@ public sealed partial class TelegramUpdateHandler(
         CallbackQuery callbackQuery,
         string text,
         InlineKeyboardMarkup? replyMarkup,
-        CancellationToken ct)
+        CancellationToken ct,
+        ParseMode? parseMode = null)
     {
         if (callbackQuery.Message is null)
         {
-            await client.SendMessage(callbackQuery.From.Id, text, replyMarkup: replyMarkup, cancellationToken: ct);
+            await client.SendMessage(callbackQuery.From.Id, text, parseMode: parseMode ?? default, replyMarkup: replyMarkup, cancellationToken: ct);
             return;
         }
 
@@ -1023,6 +1043,7 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery.Message.Chat.Id,
             callbackQuery.Message.MessageId,
             text,
+            parseMode: parseMode ?? default,
             replyMarkup: replyMarkup,
             cancellationToken: ct);
     }

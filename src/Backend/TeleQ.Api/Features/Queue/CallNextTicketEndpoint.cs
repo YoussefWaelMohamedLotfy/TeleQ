@@ -29,7 +29,7 @@ public sealed class CallNextTicketEndpoint(
     {
         var clerkId = User.FindFirst("sub")?.Value
                       ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                      ?? Guid.NewGuid().ToString();
+                      ?? Guid.CreateVersion7().ToString();
 
         var counterLabel = User.FindFirst("counter_label")?.Value ?? "Counter";
 

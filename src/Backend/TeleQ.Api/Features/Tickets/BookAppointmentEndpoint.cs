@@ -61,7 +61,7 @@ public sealed class BookAppointmentEndpoint(
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"B-{queuePosition:D3}";
 
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
         var evt = new AppointmentBooked(
             TicketId: ticketId,
             TicketNumber: ticketNumber,

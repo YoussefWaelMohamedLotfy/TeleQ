@@ -6,7 +6,6 @@ using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using JasperFx.OpenTelemetry;
 using Marten;
-using Marten.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
@@ -24,11 +23,10 @@ using TeleQ.Api.Features.Services;
 using TeleQ.Api.Features.Tickets;
 using TeleQ.Api.Features.TimeSlots;
 using TeleQ.Api.OpenAPI;
+using ZiggyCreatures.Caching.Fusion;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-// Define the API version set used across all endpoints.
-// New versions are registered here and mapped to endpoints via Options().
 VersionSets.CreateApi("TeleQ", v => v
     .HasApiVersion(new ApiVersion(1, 0))
     .HasApiVersion(new ApiVersion(2, 0)));
@@ -47,7 +45,13 @@ builder.Services.AddSingleton<TimeSlotMapper>();
 builder.Services.AddSingleton<TicketMapper>();
 
 builder.AddRedisDistributedCache("garnet");
-builder.Services.AddHybridCache();
+builder.Services.AddFusionCache()
+    .WithSystemTextJsonSerializer()
+    .WithRegisteredDistributedCache()
+    .WithStackExchangeRedisBackplane(x => x.Configuration = builder.Configuration.GetConnectionString("garnet"))
+    .AsHybridCache();
+
+builder.AddRabbitMQClient("rabbitmq");
 
 builder.Services.AddFastEndpoints()
     .AddVersioning(o =>
@@ -136,7 +140,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         });
 
 builder.Services.AddAuthorizationBuilder()
-    //.AddFallbackPolicy("Default", p => p.RequireAuthenticatedUser())
     .AddPolicy("AdminOnly", p => p.RequireRole("admin"))
     .AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"))
     .AddPolicy("AnyStaff", p => p.RequireRole("clerk", "admin"));

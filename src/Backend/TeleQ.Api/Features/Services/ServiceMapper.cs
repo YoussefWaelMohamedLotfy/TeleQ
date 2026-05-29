@@ -8,7 +8,7 @@ public sealed class ServiceMapper : Mapper<CreateServiceRequest, ServiceResponse
 {
     public override Service ToEntity(CreateServiceRequest req) => new()
     {
-        Id = Guid.NewGuid(),
+        Id = Guid.CreateVersion7(),
         Name = req.Name,
         Description = req.Description,
         EstimatedDurationMinutes = req.EstimatedDurationMinutes,

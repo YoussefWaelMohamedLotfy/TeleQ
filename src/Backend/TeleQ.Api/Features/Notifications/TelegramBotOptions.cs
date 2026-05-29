@@ -28,4 +28,12 @@ public sealed class TelegramBotOptions
     /// dynamically-assigned public URL and uses it as the webhook URL.
     /// </summary>
     public string? NgrokManagementUrl { get; set; }
+
+    /// <summary>
+    /// Base URL of the customer-facing frontend application (e.g. https://app.example.com).
+    /// When set, ticket confirmation messages sent via Telegram include a direct link to
+    /// the ticket details page in the format <c>{FrontendBaseUrl}/ticket/{ticketId}</c>.
+    /// Leave empty to omit the link.
+    /// </summary>
+    public string? FrontendBaseUrl { get; set; }
 }

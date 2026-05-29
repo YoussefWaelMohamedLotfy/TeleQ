@@ -2,6 +2,7 @@
   <Folder Name="/Solution Items/">
     <File Path=".gitattributes" />
     <File Path=".gitignore" />
+    <File Path=".mcp.json" />
     <File Path="aspire.config.json" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
@@ -18,6 +19,7 @@
   </Folder>
   <Folder Name="/src/Backend/">
     <Project Path="src/Backend/TeleQ.Api/TeleQ.Api.csproj" />
+    <Project Path="src/Backend/TeleQ.Messaging.Worker/TeleQ.Messaging.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="src/Tests/TeleQ.Tests/TeleQ.Tests.csproj" />

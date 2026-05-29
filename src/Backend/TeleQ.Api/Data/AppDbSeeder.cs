@@ -125,8 +125,8 @@ public static class AppDbSeeder
                 {
                     new ClerkAssignment
                     {
-                        Id = Guid.NewGuid(),
-                        ClerkId = Guid.NewGuid().ToString(),
+                        Id = Guid.CreateVersion7(),
+                        ClerkId = Guid.CreateVersion7().ToString(),
                         ClerkDisplayName = localFaker.Name.FullName(),
                         CounterLabel = "Counter 1",
                         BranchId = svc.BranchId,
@@ -136,8 +136,8 @@ public static class AppDbSeeder
                     },
                     new ClerkAssignment
                     {
-                        Id = Guid.NewGuid(),
-                        ClerkId = Guid.NewGuid().ToString(),
+                        Id = Guid.CreateVersion7(),
+                        ClerkId = Guid.CreateVersion7().ToString(),
                         ClerkDisplayName = localFaker.Name.FullName(),
                         CounterLabel = "Counter 2",
                         BranchId = svc.BranchId,

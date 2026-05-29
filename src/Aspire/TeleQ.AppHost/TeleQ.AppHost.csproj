@@ -10,6 +10,7 @@
     <PackageReference Include="Aspire.Hosting.Garnet" />
     <PackageReference Include="Aspire.Hosting.Keycloak" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ngrok" />
   </ItemGroup>
@@ -17,5 +18,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Backend\TeleQ.Api\TeleQ.Api.csproj" />
     <ProjectReference Include="..\..\Apps\TeleQ.Web\TeleQ.Web.csproj" />
+    <ProjectReference Include="..\..\Backend\TeleQ.Messaging.Worker\TeleQ.Messaging.Worker.csproj" />
   </ItemGroup>
 </Project>

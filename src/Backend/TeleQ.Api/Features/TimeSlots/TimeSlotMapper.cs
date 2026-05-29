@@ -8,7 +8,7 @@ public sealed class TimeSlotMapper : Mapper<CreateTimeSlotRequest, TimeSlotRespo
 {
     public override TimeSlot ToEntity(CreateTimeSlotRequest req) => new()
     {
-        Id = Guid.NewGuid(),
+        Id = Guid.CreateVersion7(),
         BranchId = req.BranchId,
         StartTime = req.StartTime,
         EndTime = req.EndTime,
