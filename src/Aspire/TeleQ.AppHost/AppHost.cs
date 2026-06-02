@@ -53,17 +53,6 @@ var api = builder
     .WaitFor(rabbitmq)
     .WaitFor(garnet);
 
-var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", true);
-
-var ngrok = builder.AddNgrok("ngrok", endpointPort: 4040)
-    .WithImageTag("alpine")
-    .WithAuthToken(ngrokAuthToken)
-    .WithTunnelEndpoint(api, "https")
-    .WithLifetime(ContainerLifetime.Persistent);
-
-api.WaitFor(ngrok)
-   .WithEnvironment("TelegramBot__NgrokManagementUrl", ngrok.GetEndpoint("http"));
-
 var apiMigrations = api.AddEFMigrations("api-migrations", "TeleQ.Api.Data.AppDbContext")
     .WaitFor(teleqDb)
     .WithMigrationsProject<Projects.TeleQ_Api>()
@@ -80,11 +69,25 @@ var blazor = builder
     .WaitFor(api)
     .WaitFor(garnet);
 
-api.WithEnvironment("TelegramBot__FrontendBaseUrl", blazor.GetEndpoint("https"));
+var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", true);
 
-builder.AddProject<Projects.TeleQ_Messaging_Worker>("teleq-messaging-worker")
+
+
+var messagingWorker = builder.AddProject<Projects.TeleQ_Messaging_Worker>("teleq-messaging-worker")
+    .WithReference(teleqDb)
+    .WithReference(garnet)
     .WithReference(rabbitmq)
-    .WaitFor(ngrok)
-    .WaitFor(rabbitmq);
+    .WaitFor(teleqDb)
+    .WaitFor(garnet)
+    .WaitFor(rabbitmq)
+    .WithEnvironment("TelegramBot__FrontendBaseUrl", blazor.GetEndpoint("https"));
+
+var ngrok = builder.AddNgrok("ngrok", endpointPort: 4040)
+    .WithImageTag("alpine")
+    .WithAuthToken(ngrokAuthToken)
+    .WithTunnelEndpoint(messagingWorker, "https")
+    .WithLifetime(ContainerLifetime.Persistent);
+
+messagingWorker.WithEnvironment("TelegramBot__NgrokManagementUrl", ngrok.GetEndpoint("http"));
 
 await builder.Build().RunAsync();

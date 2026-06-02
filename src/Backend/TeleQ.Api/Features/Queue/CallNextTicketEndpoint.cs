@@ -4,7 +4,7 @@ using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Hybrid;
 using TeleQ.Api.Common;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Features.Notifications;
 

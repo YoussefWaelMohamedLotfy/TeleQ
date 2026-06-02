@@ -1,6 +1,6 @@
 using Marten.Events.Projections;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
 
 namespace TeleQ.Api.Common.Projections;
 

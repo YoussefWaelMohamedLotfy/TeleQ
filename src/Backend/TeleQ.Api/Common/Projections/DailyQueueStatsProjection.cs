@@ -1,5 +1,5 @@
 using Marten.Events.Projections;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.DomainEvents;
 
 namespace TeleQ.Api.Common.Projections;
 

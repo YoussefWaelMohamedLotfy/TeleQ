@@ -1,5 +1,5 @@
 using FastEndpoints;
-using TeleQ.Api.Common.Aggregates;
+using TeleQ.Messaging.Shared.Aggregates;
 
 namespace TeleQ.Api.Features.Tickets;
 

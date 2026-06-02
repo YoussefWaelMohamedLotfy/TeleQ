@@ -1,4 +1,4 @@
-namespace TeleQ.Api.Common.DomainEvents;
+namespace TeleQ.Messaging.Shared.DomainEvents;
 
 // Walk-in ticket created at the counter or via bot
 public record TicketIssued(

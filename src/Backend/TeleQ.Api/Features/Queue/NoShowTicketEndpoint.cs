@@ -4,8 +4,8 @@ using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Hybrid;
 using TeleQ.Api.Common;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
 using TeleQ.Api.Features.Notifications;
 
 namespace TeleQ.Api.Features.Queue;

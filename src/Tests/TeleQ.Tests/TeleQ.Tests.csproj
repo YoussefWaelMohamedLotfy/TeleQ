@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Backend\TeleQ.Api\TeleQ.Api.csproj" />
+    <ProjectReference Include="..\..\Shared\TeleQ.Messaging.Shared\TeleQ.Messaging.Shared.csproj" />
   </ItemGroup>
 
 </Project>

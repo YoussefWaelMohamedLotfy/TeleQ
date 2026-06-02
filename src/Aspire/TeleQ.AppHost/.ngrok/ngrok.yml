@@ -4,6 +4,6 @@ agent:
   log: stdout
 
 endpoints:
-  - name: api-https
+  - name: teleq-messaging-worker-https
     upstream:
-      url: https://host.docker.internal:7157
+      url: https://host.docker.internal:7158
