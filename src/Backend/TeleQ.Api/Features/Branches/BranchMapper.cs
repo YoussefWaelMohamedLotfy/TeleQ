@@ -8,7 +8,7 @@ public sealed class BranchMapper : Mapper<CreateBranchRequest, BranchResponse, B
 {
     public override Branch ToEntity(CreateBranchRequest req) => new()
     {
-        Id = Guid.NewGuid(),
+        Id = Guid.CreateVersion7(),
         Name = req.Name,
         Address = req.Address,
         PhoneNumber = req.PhoneNumber,

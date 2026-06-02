@@ -15,7 +15,7 @@
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Mediator.Abstractions" />
-		<PackageReference Include="Mediator.SourceGenerator">
+		<PackageReference Include="Mediator.SourceGenerator" OutputItemType="Analyzer" ReferenceOutputAssembly="false">
 			<PrivateAssets>all</PrivateAssets>
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
@@ -24,14 +24,20 @@
 		  <PrivateAssets>all</PrivateAssets>
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
-		<PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
 		<PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" />
+		<PackageReference Include="ZiggyCreatures.FusionCache" />
+		<PackageReference Include="ZiggyCreatures.FusionCache.Serialization.SystemTextJson" />
+		<PackageReference Include="ZiggyCreatures.FusionCache.Backplane.StackExchangeRedis" />
+		<PackageReference Include="ZiggyCreatures.FusionCache.OpenTelemetry" />
 		<PackageReference Include="Bogus" />
 		<PackageReference Include="Scalar.AspNetCore.Microsoft" />
-		<PackageReference Include="Telegram.Bot" />
+
 	</ItemGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\Aspire\TeleQ.ServiceDefaults\TeleQ.ServiceDefaults.csproj" />
+		<ProjectReference Include="..\..\Shared\TeleQ.Messaging.Shared\TeleQ.Messaging.Shared.csproj" />
+		<ProjectReference Include="..\TeleQ.API.TempExtensions\TeleQ.API.TempExtensions.csproj" />
+		<ProjectReference Include="..\TeleQ.Messaging.Worker\TeleQ.Messaging.Worker.csproj" />
 	</ItemGroup>
 </Project>

@@ -2,6 +2,7 @@
   <Folder Name="/Solution Items/">
     <File Path=".gitattributes" />
     <File Path=".gitignore" />
+    <File Path=".mcp.json" />
     <File Path="aspire.config.json" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
@@ -17,7 +18,12 @@
     <Project Path="src/Aspire/TeleQ.ServiceDefaults/TeleQ.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/src/Backend/">
+    <Project Path="src/Backend/TeleQ.API.TempExtensions/TeleQ.API.TempExtensions.csproj" Id="914c3b44-41a7-48c5-8415-31e5983a850c" />
     <Project Path="src/Backend/TeleQ.Api/TeleQ.Api.csproj" />
+    <Project Path="src/Backend/TeleQ.Messaging.Worker/TeleQ.Messaging.Worker.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/TeleQ.Messaging.Shared/TeleQ.Messaging.Shared.csproj" Id="f76d1cec-7618-4f05-a915-02977b11a847" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="src/Tests/TeleQ.Tests/TeleQ.Tests.csproj" />

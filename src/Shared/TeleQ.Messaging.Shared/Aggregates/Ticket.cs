@@ -1,6 +1,6 @@
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.DomainEvents;
 
-namespace TeleQ.Api.Common.Aggregates;
+namespace TeleQ.Messaging.Shared.Aggregates;
 
 public enum TicketType { WalkIn, Appointment }
 
@@ -9,8 +9,9 @@ public enum TicketStatus { Waiting, Called, Served, NoShow, Cancelled }
 /// <summary>
 /// Event-sourced aggregate representing a customer's queue ticket.
 /// Rebuilt by Marten by replaying events from the ticket's stream.
+/// Must be partial to allow Marten source generator to create the dispatcher.
 /// </summary>
-public sealed class Ticket
+public sealed partial class Ticket
 {
     public Guid Id { get; private set; }
     public string TicketNumber { get; private set; } = string.Empty;

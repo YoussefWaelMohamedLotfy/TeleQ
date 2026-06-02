@@ -1,3 +1,5 @@
+namespace TeleQ.Api.Data.Entities;
+
 /// <summary>
 /// Stores the Telegram chat ID associated with a customer phone number,
 /// enabling proactive push notifications when their ticket is called.

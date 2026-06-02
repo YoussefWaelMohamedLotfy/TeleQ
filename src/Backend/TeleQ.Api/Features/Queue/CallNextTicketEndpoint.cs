@@ -4,7 +4,7 @@ using Marten;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Hybrid;
 using TeleQ.Api.Common;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Features.Notifications;
 
@@ -29,7 +29,7 @@ public sealed class CallNextTicketEndpoint(
     {
         var clerkId = User.FindFirst("sub")?.Value
                       ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                      ?? Guid.NewGuid().ToString();
+                      ?? Guid.CreateVersion7().ToString();
 
         var counterLabel = User.FindFirst("counter_label")?.Value ?? "Counter";
 

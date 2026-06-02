@@ -3,8 +3,8 @@ using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.Extensions.Caching.Hybrid;
 using TeleQ.Api.Common;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
 using TeleQ.Api.Data;
 
 namespace TeleQ.Api.Features.Tickets;

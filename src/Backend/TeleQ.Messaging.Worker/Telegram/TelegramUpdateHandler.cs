@@ -1,32 +1,33 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
-using TeleQ.Api.Common;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
-using TeleQ.Api.Common.Projections;
-using TeleQ.Api.Data;
-using TeleQ.Api.Data.Entities;
-using TeleQ.Api.Features.Tickets;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.Configuration;
+using TeleQ.Messaging.Shared.DomainEvents;
+using TeleQ.Messaging.Shared.Projections;
+using TeleQ.Messaging.Worker.Data;
+using TeleQ.Messaging.Worker.Data.Entities;
+using TeleQ.Messaging.Worker.Helpers;
 using IDocumentSession = Marten.IDocumentSession;
 using IQuerySession = Marten.IQuerySession;
 
-namespace TeleQ.Api.Features.Notifications;
+namespace TeleQ.Messaging.Worker.Telegram;
 
 /// <summary>
-/// Stateful singleton that processes every Telegram <see cref="Update"/>.
-/// Used by both the long-polling <see cref="TelegramBotService"/> and the
-/// webhook <see cref="TelegramWebhookEndpoint"/>.
+/// Stateful singleton that processes every Telegram <see cref="Update"/> received via long-polling.
 /// </summary>
 public sealed partial class TelegramUpdateHandler(
     ILogger<TelegramUpdateHandler> logger,
     IServiceScopeFactory scopeFactory,
-    HybridCache cache) : IUpdateHandler
+    HybridCache cache,
+    IOptions<TelegramBotOptions> telegramOptions) : IUpdateHandler
 {
     private static readonly Regex PhoneRegex = GetPhoneRegex();
 
@@ -70,14 +71,6 @@ public sealed partial class TelegramUpdateHandler(
     {
         logger.LogError(exception, "Telegram Bot polling error");
         return Task.CompletedTask;
-    }
-
-    // ── Proactive push ─────────────────────────────────────────────────────
-
-    /// <summary>Sends a proactive message to a customer's Telegram chat.</summary>
-    public async Task SendNotificationAsync(ITelegramBotClient client, long chatId, string message, CancellationToken ct = default)
-    {
-        await client.SendMessage(chatId, message, cancellationToken: ct);
     }
 
     // ── Message routing ────────────────────────────────────────────────────
@@ -305,13 +298,12 @@ public sealed partial class TelegramUpdateHandler(
         bool isAppointment,
         CancellationToken ct)
     {
-        // Both cache lookups are independent — fire them concurrently.
         var branchTask = cache.GetOrCreateAsync<Branch?>(
             CacheKeys.BranchEntity(branchId),
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Branches.AsNoTracking().FirstOrDefaultAsync(x => x.Id == branchId && x.IsActive, innerCt);
             },
             CacheOptions.Static,
@@ -323,7 +315,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Services
                     .AsNoTracking()
                     .Where(x => x.BranchId == branchId && x.IsActive)
@@ -366,14 +358,13 @@ public sealed partial class TelegramUpdateHandler(
         Guid serviceId,
         CancellationToken ct)
     {
-        // EF service query (via cache) and customer lookup (via cache) are safe to run concurrently.
         var chatId = callbackQuery.Message!.Chat.Id;
         var serviceTask = cache.GetOrCreateAsync<CachedServiceInfo?>(
             CacheKeys.ServiceWithBranch(serviceId),
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Services
                     .AsNoTracking()
                     .Where(x => x.Id == serviceId && x.IsActive && x.Branch.IsActive)
@@ -416,7 +407,8 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery,
             BuildWalkInConfirmationMessage(service.BranchName, service.Name, ticket),
             null,
-            ct);
+            ct,
+            ParseMode.Html);
     }
 
     private async Task HandleServiceSelectionForAppointmentAsync(
@@ -430,7 +422,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Services
                     .AsNoTracking()
                     .Where(x => x.Id == serviceId && x.IsActive && x.Branch.IsActive)
@@ -442,13 +434,12 @@ public sealed partial class TelegramUpdateHandler(
             ct)
             ?? throw new InvalidOperationException("The selected service is not available.");
 
-        // Cache the "not-yet-full" slot list with Queue TTL (30 s); time-based filter applied after retrieval.
         var cachedSlots = await cache.GetOrCreateAsync<List<TimeSlot>>(
             CacheKeys.AvailableTimeSlots(service.Id),
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.TimeSlots
                     .AsNoTracking()
                     .Where(x => x.BranchId == service.BranchId && x.ServiceId == service.Id && x.IsActive && x.BookedCount < x.Capacity)
@@ -458,7 +449,6 @@ public sealed partial class TelegramUpdateHandler(
             CacheKeys.TimeSlotListTags(service.Id),
             ct);
 
-        // Apply the time-based filter after retrieval (cannot be cached — changes every instant).
         var slots = cachedSlots
             .Where(x => SlotScheduler.NextOccurrence(x) > DateTimeOffset.UtcNow)
             .OrderBy(SlotScheduler.NextOccurrence)
@@ -491,13 +481,12 @@ public sealed partial class TelegramUpdateHandler(
         Guid slotId,
         CancellationToken ct)
     {
-        // Fetch slot from cache (Queue TTL — BookedCount changes on each booking).
         var slot = await cache.GetOrCreateAsync<TimeSlot?>(
             CacheKeys.TimeSlotEntity(slotId),
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.TimeSlots.AsNoTracking().FirstOrDefaultAsync(x => x.Id == slotId && x.IsActive, innerCt);
             },
             CacheOptions.Queue,
@@ -510,14 +499,13 @@ public sealed partial class TelegramUpdateHandler(
             throw new InvalidOperationException("The selected time slot is no longer available.");
         }
 
-        // Service query (via cache) and customer lookup (via cache) are safe to run concurrently.
         var chatId = callbackQuery.Message!.Chat.Id;
         var serviceTask = cache.GetOrCreateAsync<CachedServiceInfo?>(
             CacheKeys.ServiceWithBranch(slot.ServiceId),
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Services
                     .AsNoTracking()
                     .Where(x => x.Id == slot.ServiceId && x.IsActive && x.Branch.IsActive)
@@ -561,7 +549,8 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery,
             BuildAppointmentConfirmationMessage(service.BranchName, service.Name, slot, ticket),
             null,
-            ct);
+            ct,
+            ParseMode.Html);
     }
 
     private async Task HandlePhoneNumberAsync(
@@ -586,7 +575,7 @@ public sealed partial class TelegramUpdateHandler(
                     var details = await GetServiceDetailsAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, ct);
                     var ticket = await IssueWalkInTicketAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, phone, ct);
                     ClearContext(message.Chat.Id);
-                    await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), cancellationToken: ct);
+                    await client.SendMessage(message.Chat.Id, BuildWalkInConfirmationMessage(details.BranchName, details.ServiceName, ticket), parseMode: ParseMode.Html, cancellationToken: ct);
                     return;
                 }
             case "appointment" when context.SelectedBranchId.HasValue && context.SelectedServiceId.HasValue && context.SelectedTimeSlotId.HasValue:
@@ -596,7 +585,7 @@ public sealed partial class TelegramUpdateHandler(
                         ?? throw new InvalidOperationException("The selected time slot could not be found.");
                     var ticket = await BookAppointmentAsync(context.SelectedBranchId.Value, context.SelectedServiceId.Value, context.SelectedTimeSlotId.Value, phone, ct);
                     ClearContext(message.Chat.Id);
-                    await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), cancellationToken: ct);
+                    await client.SendMessage(message.Chat.Id, BuildAppointmentConfirmationMessage(details.BranchName, details.ServiceName, slot, ticket), parseMode: ParseMode.Html, cancellationToken: ct);
                     return;
                 }
             case "status":
@@ -622,7 +611,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.TelegramCustomers
                     .AsNoTracking()
                     .FirstOrDefaultAsync(x => x.TelegramChatId == chatId, innerCt);
@@ -634,7 +623,7 @@ public sealed partial class TelegramUpdateHandler(
     private async Task SaveCustomerAsync(long chatId, string phoneNumber, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var now = DateTimeOffset.UtcNow;
 
         var byChat = await db.TelegramCustomers.FirstOrDefaultAsync(x => x.TelegramChatId == chatId, ct);
@@ -651,7 +640,7 @@ public sealed partial class TelegramUpdateHandler(
         {
             customer = new TelegramCustomer
             {
-                Id = Guid.NewGuid(),
+                Id = Guid.CreateVersion7(),
                 TelegramChatId = chatId,
                 PhoneNumber = phoneNumber,
                 RegisteredAt = now,
@@ -667,14 +656,13 @@ public sealed partial class TelegramUpdateHandler(
         }
 
         await db.SaveChangesAsync(ct);
-        // Invalidate cached customer so next lookup reflects the updated phone/chatId.
         await cache.RemoveByTagAsync(CacheKeys.TelegramCustomerTags(chatId), ct);
     }
 
     private async Task TouchCustomerActivityAsync(long chatId, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var customer = await db.TelegramCustomers.FirstOrDefaultAsync(x => x.TelegramChatId == chatId, ct);
         if (customer is null)
         {
@@ -691,7 +679,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Branches
                     .AsNoTracking()
                     .Where(x => x.IsActive)
@@ -709,7 +697,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.Services
                     .AsNoTracking()
                     .Where(x => x.Id == serviceId && x.BranchId == branchId)
@@ -730,7 +718,7 @@ public sealed partial class TelegramUpdateHandler(
             async innerCt =>
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
-                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
                 return await db.TimeSlots
                     .AsNoTracking()
                     .FirstOrDefaultAsync(x => x.Id == slotId, innerCt);
@@ -742,10 +730,9 @@ public sealed partial class TelegramUpdateHandler(
     private async Task<Ticket> IssueWalkInTicketAsync(Guid branchId, Guid serviceId, string customerPhone, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
-        // EF Core service query and Marten queue load use different stores — safe to run concurrently.
         var queueId = GetQueueId(branchId, serviceId);
         var serviceTask = db.Services
             .AsNoTracking()
@@ -753,27 +740,27 @@ public sealed partial class TelegramUpdateHandler(
         var queueTask = session.LoadAsync<BranchQueueSnapshot>(queueId, ct);
         await Task.WhenAll(serviceTask, queueTask);
 
-        var service = await serviceTask
+        _ = await serviceTask
             ?? throw new InvalidOperationException("Service not found or inactive for the selected branch.");
         var queue = await queueTask;
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"A-{queuePosition:D3}";
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
 
         var evt = new TicketIssued(
             TicketId: ticketId,
             TicketNumber: ticketNumber,
             CustomerPhone: customerPhone,
             BranchId: branchId,
-            ServiceId: service.Id,
+            ServiceId: serviceId,
             QueuePosition: queuePosition,
             IssuedAt: DateTimeOffset.UtcNow);
 
         session.Events.StartStream<Ticket>(ticketId, evt);
         await session.SaveChangesAsync(ct);
 
-        await cache.RemoveByTagAsync(CacheKeys.QueueTags(branchId, service.Id), ct);
+        await cache.RemoveByTagAsync(CacheKeys.QueueTags(branchId, serviceId), ct);
 
         return await session.Events.AggregateStreamAsync<Ticket>(ticketId, token: ct)
             ?? throw new InvalidOperationException("The ticket could not be created.");
@@ -782,7 +769,7 @@ public sealed partial class TelegramUpdateHandler(
     private async Task<Ticket> BookAppointmentAsync(Guid branchId, Guid serviceId, Guid timeSlotId, string customerPhone, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var slot = await db.TimeSlots.FirstOrDefaultAsync(x => x.Id == timeSlotId, ct)
@@ -809,7 +796,7 @@ public sealed partial class TelegramUpdateHandler(
         var today = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime);
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"B-{queuePosition:D3}";
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
 
         var evt = new AppointmentBooked(
             TicketId: ticketId,
@@ -828,7 +815,6 @@ public sealed partial class TelegramUpdateHandler(
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
 
-        // Invalidate queue cache (desk display) and slot caches so both are immediately consistent.
         await cache.RemoveByTagAsync(
             [.. CacheKeys.QueueTags(branchId, serviceId), "timeslots", $"timeslots:service:{serviceId}", $"timeslot:{timeSlotId}"], ct);
 
@@ -839,11 +825,9 @@ public sealed partial class TelegramUpdateHandler(
     private async Task<string> BuildStatusMessageAsync(string phoneNumber, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var querySession = scope.ServiceProvider.GetRequiredService<IQuerySession>();
 
-        // Start the Marten query immediately so it overlaps with the two sequential EF queries
-        // (branches and services must be sequential — same DbContext instance).
         var snapshotsTask = Marten.QueryableExtensions.ToListAsync(querySession.Query<BranchQueueSnapshot>(), ct);
         var branches = await db.Branches.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Name, ct);
         var services = await db.Services.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x, ct);
@@ -863,8 +847,6 @@ public sealed partial class TelegramUpdateHandler(
 
         var lines = new List<string> { "🎫 Your active tickets:" };
 
-        // Aggregate all tickets in parallel — each task opens its own Marten session
-        // because IDocumentSession/IQuerySession is not thread-safe.
         var ticketResults = await Task.WhenAll(activeEntries.Select(async item =>
         {
             await using var ticketScope = scopeFactory.CreateAsyncScope();
@@ -902,7 +884,7 @@ public sealed partial class TelegramUpdateHandler(
     private async Task<string> CancelActiveTicketAsync(string phoneNumber, CancellationToken ct)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<WorkerDbContext>();
         var session = scope.ServiceProvider.GetRequiredService<IDocumentSession>();
 
         var snapshots = await Marten.QueryableExtensions.ToListAsync(session.Query<BranchQueueSnapshot>(), ct);
@@ -929,10 +911,7 @@ public sealed partial class TelegramUpdateHandler(
         if (ticket.TimeSlotId.HasValue)
         {
             var slot = await db.TimeSlots.FirstOrDefaultAsync(x => x.Id == ticket.TimeSlotId.Value, ct);
-            if (slot is not null)
-            {
-                slot.BookedCount = Math.Max(0, slot.BookedCount - 1);
-            }
+            slot?.BookedCount = Math.Max(0, slot.BookedCount - 1);
         }
 
         var evt = new TicketCancelled(
@@ -946,7 +925,6 @@ public sealed partial class TelegramUpdateHandler(
         await db.SaveChangesAsync(ct);
         await session.SaveChangesAsync(ct);
 
-        // Invalidate queue cache so the desk sees the cancellation immediately.
         var queueTags = CacheKeys.QueueTags(ticket.BranchId, ticket.ServiceId);
         await cache.RemoveByTagAsync(
             ticket.TimeSlotId.HasValue
@@ -958,21 +936,21 @@ public sealed partial class TelegramUpdateHandler(
 
     // ── UI helpers ─────────────────────────────────────────────────────────
 
-    private static InlineKeyboardMarkup BranchKeyboard(IList<Data.Entities.Branch> branches, string prefix) =>
+    private static InlineKeyboardMarkup BranchKeyboard(IList<Branch> branches, string prefix) =>
         new(branches
             .Select(branch => new[]
             {
                 InlineKeyboardButton.WithCallbackData(branch.Name, $"{prefix}:{branch.Id}")
             }));
 
-    private static InlineKeyboardMarkup ServiceKeyboard(IList<Data.Entities.Service> services, string prefix) =>
+    private static InlineKeyboardMarkup ServiceKeyboard(IList<Service> services, string prefix) =>
         new(services
             .Select(service => new[]
             {
                 InlineKeyboardButton.WithCallbackData(service.Name, $"{prefix}:{service.Id}")
             }));
 
-    private static InlineKeyboardMarkup SlotKeyboard(IList<Data.Entities.TimeSlot> slots) =>
+    private static InlineKeyboardMarkup SlotKeyboard(IList<TimeSlot> slots) =>
         new(slots
             .OrderBy(SlotScheduler.NextOccurrence)
             .Select(slot => new[]
@@ -980,26 +958,43 @@ public sealed partial class TelegramUpdateHandler(
                 InlineKeyboardButton.WithCallbackData(FormatSlot(slot), $"slot_apt:{slot.Id}")
             }));
 
-    private static string BuildWalkInConfirmationMessage(string branchName, string serviceName, Ticket ticket) =>
-        $"""
-        ✅ Walk-in ticket issued.
-        Ticket: {ticket.TicketNumber}
-        Branch: {branchName}
-        Service: {serviceName}
-        Queue position: {ticket.QueuePosition}
-        """;
+    private string BuildWalkInConfirmationMessage(string branchName, string serviceName, Ticket ticket)
+    {
+        var message = $"""
+            ✅ Walk-in ticket issued.
+            Ticket: {HtmlEscape(ticket.TicketNumber)}
+            Branch: {HtmlEscape(branchName)}
+            Service: {HtmlEscape(serviceName)}
+            Queue position: {ticket.QueuePosition}
+            """;
 
-    private static string BuildAppointmentConfirmationMessage(string branchName, string serviceName, Data.Entities.TimeSlot slot, Ticket ticket) =>
-        $"""
-        ✅ Appointment booked.
-        Ticket: {ticket.TicketNumber}
-        Branch: {branchName}
-        Service: {serviceName}
-        Slot: {FormatSlot(slot)}
-        Queue position: {ticket.QueuePosition}
-        """;
+        var baseUrl = telegramOptions.Value.FrontendBaseUrl?.TrimEnd('/');
+        return string.IsNullOrWhiteSpace(baseUrl)
+            ? message
+            : $"{message}\n<a href=\"{baseUrl}/ticket/{ticket.Id}\">🔗 View your ticket</a>";
+    }
 
-    private static string FormatSlot(Data.Entities.TimeSlot slot)
+    private string BuildAppointmentConfirmationMessage(string branchName, string serviceName, TimeSlot slot, Ticket ticket)
+    {
+        var message = $"""
+            ✅ Appointment booked.
+            Ticket: {HtmlEscape(ticket.TicketNumber)}
+            Branch: {HtmlEscape(branchName)}
+            Service: {HtmlEscape(serviceName)}
+            Slot: {HtmlEscape(FormatSlot(slot))}
+            Queue position: {ticket.QueuePosition}
+            """;
+
+        var baseUrl = telegramOptions.Value.FrontendBaseUrl?.TrimEnd('/');
+        return string.IsNullOrWhiteSpace(baseUrl)
+            ? message
+            : $"{message}\n<a href=\"{baseUrl}/ticket/{ticket.Id}\">🔗 View your ticket</a>";
+    }
+
+    private static string HtmlEscape(string text) =>
+        text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    private static string FormatSlot(TimeSlot slot)
     {
         var scheduledAt = SlotScheduler.NextOccurrence(slot);
         var remaining = Math.Max(0, slot.Capacity - slot.BookedCount);
@@ -1011,11 +1006,12 @@ public sealed partial class TelegramUpdateHandler(
         CallbackQuery callbackQuery,
         string text,
         InlineKeyboardMarkup? replyMarkup,
-        CancellationToken ct)
+        CancellationToken ct,
+        ParseMode? parseMode = null)
     {
         if (callbackQuery.Message is null)
         {
-            await client.SendMessage(callbackQuery.From.Id, text, replyMarkup: replyMarkup, cancellationToken: ct);
+            await client.SendMessage(callbackQuery.From.Id, text, parseMode: parseMode ?? default, replyMarkup: replyMarkup, cancellationToken: ct);
             return;
         }
 
@@ -1023,6 +1019,7 @@ public sealed partial class TelegramUpdateHandler(
             callbackQuery.Message.Chat.Id,
             callbackQuery.Message.MessageId,
             text,
+            parseMode: parseMode ?? default,
             replyMarkup: replyMarkup,
             cancellationToken: ct);
     }
@@ -1087,4 +1084,27 @@ public sealed partial class TelegramUpdateHandler(
 
     [GeneratedRegex("^\\+?\\d{8,15}$", RegexOptions.Compiled)]
     private static partial Regex GetPhoneRegex();
+}
+
+// ── Conversation state ─────────────────────────────────────────────────────
+
+// QueueEntry and BranchQueueSnapshot are now defined in TeleQ.Messaging.Shared.Projections
+// and imported above, so the Worker and API share the same Marten document types.
+
+public sealed record ChatContext
+{
+    public ConversationStep Step { get; init; } = ConversationStep.Idle;
+    public Guid? SelectedBranchId { get; init; }
+    public Guid? SelectedServiceId { get; init; }
+    public Guid? SelectedTimeSlotId { get; init; }
+    public string? PendingCommand { get; init; }
+}
+
+public enum ConversationStep
+{
+    Idle,
+    AwaitingBranchSelection,
+    AwaitingServiceSelection,
+    AwaitingSlotSelection,
+    AwaitingPhoneNumber,
 }

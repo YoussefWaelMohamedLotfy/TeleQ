@@ -6,16 +6,10 @@ using JasperFx.Events.Daemon;
 using JasperFx.Events.Projections;
 using JasperFx.OpenTelemetry;
 using Marten;
-using Marten.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
-using Telegram.Bot;
-using Telegram.Bot.Types;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
 using TeleQ.Api.Features.Branches;
@@ -24,11 +18,13 @@ using TeleQ.Api.Features.Services;
 using TeleQ.Api.Features.Tickets;
 using TeleQ.Api.Features.TimeSlots;
 using TeleQ.Api.OpenAPI;
+using TeleQ.API.TempExtensions.Extensions;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
+using ZiggyCreatures.Caching.Fusion;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-// Define the API version set used across all endpoints.
-// New versions are registered here and mapped to endpoints via Options().
 VersionSets.CreateApi("TeleQ", v => v
     .HasApiVersion(new ApiVersion(1, 0))
     .HasApiVersion(new ApiVersion(2, 0)));
@@ -39,6 +35,8 @@ builder.WebHost.ConfigureKestrel(x => x.AddServerHeader = false);
 
 builder.Services.AddProblemDetails();
 
+builder.Services.AddMediator(x => x.ServiceLifetime = ServiceLifetime.Scoped);
+
 // Mappers constructor-injected into list endpoints must be registered explicitly,
 // as FastEndpoints only auto-registers mappers used as generic type parameters.
 builder.Services.AddSingleton<BranchMapper>();
@@ -47,7 +45,13 @@ builder.Services.AddSingleton<TimeSlotMapper>();
 builder.Services.AddSingleton<TicketMapper>();
 
 builder.AddRedisDistributedCache("garnet");
-builder.Services.AddHybridCache();
+builder.Services.AddFusionCache()
+    .WithSystemTextJsonSerializer()
+    .WithRegisteredDistributedCache()
+    .WithStackExchangeRedisBackplane(x => x.Configuration = builder.Configuration.GetConnectionString("garnet"))
+    .AsHybridCache();
+
+builder.RegisterMassTransit();
 
 builder.Services.AddFastEndpoints()
     .AddVersioning(o =>
@@ -92,6 +96,10 @@ builder.Services.AddMarten(opts =>
         opts.UseSystemTextJsonForSerialization();
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
+        
+        // Configure projection documents to be persisted and queryable
+        opts.Schema.For<BranchQueueSnapshot>().Identity(x => x.Id);
+        opts.Schema.For<DailyQueueStats>().Identity(x => x.Id);
 
         // Emit OTel spans for every connection (+ all write operations on SaveChanges)
         opts.OpenTelemetry.TrackConnections = TrackLevel.Verbose;
@@ -105,10 +113,7 @@ builder.Services.AddMarten(opts =>
         // Async projection runs in background via Marten daemon (non-critical stats)
         opts.Projections.Add<DailyQueueStatsProjection>(ProjectionLifecycle.Async);
 
-        if (builder.Environment.IsDevelopment())
-        {
-            opts.AutoCreateSchemaObjects = AutoCreate.All;
-        }
+        opts.AutoCreateSchemaObjects = AutoCreate.All;
 
         // Register all domain event types
         opts.Events.AddEventTypes(
@@ -136,31 +141,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         });
 
 builder.Services.AddAuthorizationBuilder()
-    //.AddFallbackPolicy("Default", p => p.RequireAuthenticatedUser())
     .AddPolicy("AdminOnly", p => p.RequireRole("admin"))
     .AddPolicy("ClerkOrAdmin", p => p.RequireRole("clerk", "admin"))
     .AddPolicy("AnyStaff", p => p.RequireRole("clerk", "admin"));
 
 builder.Services.AddSignalR();
 
-builder.Services.AddMediator();
-
-builder.Services.Configure<TelegramBotOptions>(
-    builder.Configuration.GetSection(TelegramBotOptions.SectionName));
-
-// Register the bot client as a singleton so both the hosted service and the
-// webhook endpoint share the same authenticated client instance.
-builder.Services.AddSingleton<ITelegramBotClient>(sp =>
-{
-    var opts = sp.GetRequiredService<IOptions<TelegramBotOptions>>().Value;
-    return new TelegramBotClient(opts.BotToken);
-});
-
-// Singleton handler maintains per-chat conversation state across all updates.
-builder.Services.AddSingleton<TelegramUpdateHandler>();
-builder.Services.AddHostedService<TelegramBotService>();
-
 WebApplication app = builder.Build();
+
+// Ensure Marten schema objects (projections, event store tables) are created on startup
+using (var scope = app.Services.CreateScope())
+{
+    var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
+    await documentStore.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
+}
 
 app.MapDefaultEndpoints();
 
@@ -177,36 +171,11 @@ app.UseFastEndpoints(c =>
     c.Versioning.Prefix = "v";
     c.Versioning.DefaultVersion = 1;
     c.Versioning.PrependToRoute = true;
-
-    // Register Telegram.Bot JSON converters so Endpoint<Update> correctly deserializes
-    // all Telegram types (enum string values, polymorphic results, etc.).
-    foreach (var converter in JsonBotAPI.Options.Converters)
-        c.Serializer.Options.Converters.Add(converter);
 });
 
 app.MapHub<QueueHub>("/hubs/queue");
 
-app.MapPost("/bot/telegram", async (
-    HttpContext ctx,
-    Update update,
-    TelegramUpdateHandler handler,
-    ITelegramBotClient botClient,
-    IOptions<TelegramBotOptions> opts) =>
-{
-    var secret = opts.Value.WebhookSecretToken;
-
-    if (!string.IsNullOrWhiteSpace(secret))
-    {
-        var incoming = ctx.Request.Headers["X-Telegram-Bot-Api-Secret-Token"].FirstOrDefault();
-
-        if (!string.Equals(incoming, secret, StringComparison.Ordinal))
-            return Results.Unauthorized();
-    }
-    _ = Task.Run(() => handler.HandleUpdateAsync(botClient, update, CancellationToken.None));
-    return Results.Ok();
-}).AllowAnonymous().ExcludeFromDescription();
-
-app.MapOpenApi().AllowAnonymous();
+app.MapOpenApi();
 app.MapScalarApiReference(options =>
 {
     options
@@ -236,6 +205,6 @@ app.MapScalarApiReference(options =>
         var isDefault = i == descriptions.Count - 1;
         options.AddDocument(description.GroupName, description.GroupName, isDefault: isDefault);
     }
-}).AllowAnonymous();
+});
 
 await app.RunAsync();

@@ -1,5 +1,6 @@
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
+using TeleQ.Messaging.Shared.Projections;
 using TeleQ.Api.Common.Projections;
 
 namespace TeleQ.Tests.Projections;
@@ -24,7 +25,7 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketIssued(ticketId, "A-001", "+1555", _branchId, _serviceId, 1, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(1);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(1);
         await Assert.That(doc.WaitingTickets[0].TicketId).IsEqualTo(ticketId);
         await Assert.That(doc.WaitingTickets[0].Type).IsEqualTo(TicketType.WalkIn);
         await Assert.That(doc.NextQueueNumber).IsEqualTo(2);
@@ -39,7 +40,7 @@ public sealed class BranchQueueProjectionTests
         _projection.Apply(new TicketIssued(Guid.NewGuid(), "A-002", "+2", _branchId, _serviceId, 2, DateTimeOffset.UtcNow), doc);
         _projection.Apply(new TicketIssued(Guid.NewGuid(), "A-003", "+3", _branchId, _serviceId, 3, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(3);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(3);
         await Assert.That(doc.NextQueueNumber).IsEqualTo(4);
     }
 
@@ -57,7 +58,7 @@ public sealed class BranchQueueProjectionTests
             ticketId, "B-001", "+1555", _branchId, _serviceId,
             slotId, scheduled, 1, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(1);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(1);
         await Assert.That(doc.WaitingTickets[0].Type).IsEqualTo(TicketType.Appointment);
         await Assert.That(doc.WaitingTickets[0].ScheduledAt).IsEqualTo(scheduled);
     }
@@ -73,8 +74,8 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketCalled(ticketId, _branchId, _serviceId, Guid.NewGuid(), "Counter 1", DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(0);
-        await Assert.That(doc.CalledTickets).HasCount().EqualTo(1);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(0);
+        await Assert.That(doc.CalledTickets).Count().IsEqualTo(1);
         await Assert.That(doc.CalledTickets[0].TicketId).IsEqualTo(ticketId);
     }
 
@@ -87,8 +88,8 @@ public sealed class BranchQueueProjectionTests
         // Call a ticket that's not in the queue — should not throw
         _projection.Apply(new TicketCalled(Guid.NewGuid(), _branchId, _serviceId, Guid.NewGuid(), "C1", DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(1);
-        await Assert.That(doc.CalledTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(1);
+        await Assert.That(doc.CalledTickets).Count().IsEqualTo(0);
     }
 
     // ── TicketServed ─────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketServed(ticketId, _branchId, _serviceId, clerkId, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.CalledTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.CalledTickets).Count().IsEqualTo(0);
         await Assert.That(doc.TotalServedToday).IsEqualTo(1);
     }
 
@@ -121,7 +122,7 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketNoShow(ticketId, _branchId, _serviceId, clerkId, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.CalledTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.CalledTickets).Count().IsEqualTo(0);
         await Assert.That(doc.TotalNoShowToday).IsEqualTo(1);
     }
 
@@ -135,7 +136,7 @@ public sealed class BranchQueueProjectionTests
         // Mark no-show while still in waiting (edge case)
         _projection.Apply(new TicketNoShow(ticketId, _branchId, _serviceId, null, DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(0);
         await Assert.That(doc.TotalNoShowToday).IsEqualTo(1);
     }
 
@@ -150,7 +151,7 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketCancelled(ticketId, _branchId, _serviceId, "customer", DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.WaitingTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.WaitingTickets).Count().IsEqualTo(0);
         await Assert.That(doc.TotalCancelledToday).IsEqualTo(1);
     }
 
@@ -165,7 +166,7 @@ public sealed class BranchQueueProjectionTests
 
         _projection.Apply(new TicketCancelled(ticketId, _branchId, _serviceId, "admin", DateTimeOffset.UtcNow), doc);
 
-        await Assert.That(doc.CalledTickets).HasCount().EqualTo(0);
+        await Assert.That(doc.CalledTickets).Count().IsEqualTo(0);
         await Assert.That(doc.TotalCancelledToday).IsEqualTo(1);
     }
 
@@ -193,6 +194,6 @@ public sealed class BranchQueueProjectionTests
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private BranchQueueSnapshot NewSnapshot() =>
+    private static BranchQueueSnapshot NewSnapshot() =>
         new() { Id = $"{_branchId}:{_serviceId}", BranchId = _branchId, ServiceId = _serviceId };
 }

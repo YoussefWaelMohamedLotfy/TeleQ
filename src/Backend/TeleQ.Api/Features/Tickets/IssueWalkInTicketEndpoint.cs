@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using TeleQ.Api.Common;
-using TeleQ.Api.Common.Aggregates;
-using TeleQ.Api.Common.DomainEvents;
+using TeleQ.Messaging.Shared.Aggregates;
+using TeleQ.Messaging.Shared.DomainEvents;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
 using TeleQ.Api.Features.Notifications;
@@ -45,7 +45,7 @@ public sealed class IssueWalkInTicketEndpoint(
         var queuePosition = (queue is null || queue.LastQueueDate < today) ? 1 : queue.NextQueueNumber;
         var ticketNumber = $"A-{queuePosition:D3}";
 
-        var ticketId = Guid.NewGuid();
+        var ticketId = Guid.CreateVersion7();
         var evt = new TicketIssued(
             TicketId: ticketId,
             TicketNumber: ticketNumber,

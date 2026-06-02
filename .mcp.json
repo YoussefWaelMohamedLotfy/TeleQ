@@ -1,0 +1,16 @@
+{
+    "mcpServers": {
+        "aspire": {
+            "type": "local",
+            "command": "aspire",
+            "args": [
+                "agent",
+                "mcp"
+            ]
+        },
+        "pgmcp": {
+            "url": "http://localhost:8083/sse",
+            "type": "http"
+        }
+    }
+}

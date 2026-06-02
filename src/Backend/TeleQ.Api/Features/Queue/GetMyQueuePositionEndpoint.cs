@@ -2,7 +2,7 @@ using FastEndpoints;
 using FastEndpoints.AspVersioning;
 using Marten;
 using Microsoft.EntityFrameworkCore;
-using TeleQ.Api.Common.Aggregates;
+using TeleQ.Messaging.Shared.Aggregates;
 using TeleQ.Api.Common.Projections;
 using TeleQ.Api.Data;
 

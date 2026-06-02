@@ -1,4 +1,4 @@
-namespace TeleQ.Api.Features.Notifications;
+namespace TeleQ.Messaging.Worker.Telegram;
 
 /// <summary>
 /// Flat projection of a <c>Service</c> + its parent <c>Branch</c> stored in HybridCache.
