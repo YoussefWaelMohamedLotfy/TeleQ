@@ -11,6 +11,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 using TeleQ.Messaging.Shared.Aggregates;
 using TeleQ.Messaging.Shared.Configuration;
 using TeleQ.Messaging.Shared.DomainEvents;
+using TeleQ.Messaging.Shared.Projections;
 using TeleQ.Messaging.Worker.Data;
 using TeleQ.Messaging.Worker.Data.Entities;
 using TeleQ.Messaging.Worker.Helpers;
@@ -1087,34 +1088,8 @@ public sealed partial class TelegramUpdateHandler(
 
 // ── Conversation state ─────────────────────────────────────────────────────
 
-/// <summary>
-/// Read model entry for a single ticket in a queue snapshot.
-/// Mirrors the API projection document; used for status queries by the Worker.
-/// </summary>
-public sealed class QueueEntry
-{
-    public Guid TicketId { get; set; }
-    public string TicketNumber { get; set; } = string.Empty;
-    public string CustomerPhone { get; set; } = string.Empty;
-    public int QueuePosition { get; set; }
-    public DateTimeOffset IssuedAt { get; set; }
-    public DateTimeOffset? ScheduledAt { get; set; }
-}
-
-/// <summary>
-/// Live queue snapshot document — read from Marten (projected and maintained by TeleQ.Api).
-/// The Worker queries this document to determine queue position for status reports and ticket issuance.
-/// </summary>
-public sealed class BranchQueueSnapshot
-{
-    public string Id { get; set; } = null!;
-    public Guid BranchId { get; set; }
-    public Guid ServiceId { get; set; }
-    public List<QueueEntry> WaitingTickets { get; set; } = [];
-    public List<QueueEntry> CalledTickets { get; set; } = [];
-    public int NextQueueNumber { get; set; } = 1;
-    public DateOnly LastQueueDate { get; set; }
-}
+// QueueEntry and BranchQueueSnapshot are now defined in TeleQ.Messaging.Shared.Projections
+// and imported above, so the Worker and API share the same Marten document types.
 
 public sealed record ChatContext
 {

@@ -1,5 +1,6 @@
 using TeleQ.Messaging.Shared.Aggregates;
 using TeleQ.Messaging.Shared.DomainEvents;
+using TeleQ.Messaging.Shared.Projections;
 using TeleQ.Api.Common.Projections;
 
 namespace TeleQ.Tests.Projections;

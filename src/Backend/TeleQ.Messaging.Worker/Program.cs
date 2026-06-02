@@ -1,5 +1,6 @@
 using MassTransit;
 using Marten;
+using JasperFx.Events.Projections;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Serialization;
@@ -7,6 +8,7 @@ using Telegram.Bot.Types;
 using TeleQ.Messaging.Shared.Aggregates;
 using TeleQ.Messaging.Shared.Configuration;
 using TeleQ.Messaging.Shared.DomainEvents;
+using TeleQ.Messaging.Shared.Projections;
 using TeleQ.Messaging.Worker.Consumers;
 using TeleQ.Messaging.Worker.Data;
 using TeleQ.Messaging.Worker.Telegram;
@@ -24,9 +26,13 @@ builder.Services.AddMarten(opts =>
         opts.Connection(builder.Configuration.GetConnectionString("TeleQ-Db")!);
         opts.DatabaseSchemaName = "events";
         opts.UseSystemTextJsonForSerialization();
-        opts.AutoCreateSchemaObjects = AutoCreate.None;
+        opts.AutoCreateSchemaObjects = AutoCreate.CreateOrUpdate;
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
+
+        // Register inline projection so BranchQueueSnapshot is updated synchronously
+        // whenever the Worker appends ticket events (TicketIssued, AppointmentBooked, etc.)
+        opts.Projections.Add<BranchQueueProjection>(ProjectionLifecycle.Inline);
 
         opts.Events.AddEventTypes(
         [

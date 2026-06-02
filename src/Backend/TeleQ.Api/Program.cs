@@ -96,6 +96,10 @@ builder.Services.AddMarten(opts =>
         opts.UseSystemTextJsonForSerialization();
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
+        
+        // Configure projection documents to be persisted and queryable
+        opts.Schema.For<BranchQueueSnapshot>().Identity(x => x.Id);
+        opts.Schema.For<DailyQueueStats>().Identity(x => x.Id);
 
         // Emit OTel spans for every connection (+ all write operations on SaveChanges)
         opts.OpenTelemetry.TrackConnections = TrackLevel.Verbose;
