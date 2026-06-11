@@ -35,8 +35,6 @@ builder.WebHost.ConfigureKestrel(x => x.AddServerHeader = false);
 
 builder.Services.AddProblemDetails();
 
-builder.Services.AddMediator(x => x.ServiceLifetime = ServiceLifetime.Scoped);
-
 // Mappers constructor-injected into list endpoints must be registered explicitly,
 // as FastEndpoints only auto-registers mappers used as generic type parameters.
 builder.Services.AddSingleton<BranchMapper>();
@@ -96,10 +94,6 @@ builder.Services.AddMarten(opts =>
         opts.UseSystemTextJsonForSerialization();
 
         opts.Schema.For<Ticket>().Identity(x => x.Id);
-        
-        // Configure projection documents to be persisted and queryable
-        opts.Schema.For<BranchQueueSnapshot>().Identity(x => x.Id);
-        opts.Schema.For<DailyQueueStats>().Identity(x => x.Id);
 
         // Emit OTel spans for every connection (+ all write operations on SaveChanges)
         opts.OpenTelemetry.TrackConnections = TrackLevel.Verbose;
@@ -113,7 +107,10 @@ builder.Services.AddMarten(opts =>
         // Async projection runs in background via Marten daemon (non-critical stats)
         opts.Projections.Add<DailyQueueStatsProjection>(ProjectionLifecycle.Async);
 
-        opts.AutoCreateSchemaObjects = AutoCreate.All;
+        if (builder.Environment.IsDevelopment())
+        {
+            opts.AutoCreateSchemaObjects = AutoCreate.All;
+        }
 
         // Register all domain event types
         opts.Events.AddEventTypes(
@@ -147,14 +144,9 @@ builder.Services.AddAuthorizationBuilder()
 
 builder.Services.AddSignalR();
 
-WebApplication app = builder.Build();
+builder.Services.AddMediator(x => x.ServiceLifetime = ServiceLifetime.Scoped);
 
-// Ensure Marten schema objects (projections, event store tables) are created on startup
-using (var scope = app.Services.CreateScope())
-{
-    var documentStore = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
-    await documentStore.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
-}
+WebApplication app = builder.Build();
 
 app.MapDefaultEndpoints();
 
@@ -175,7 +167,7 @@ app.UseFastEndpoints(c =>
 
 app.MapHub<QueueHub>("/hubs/queue");
 
-app.MapOpenApi();
+app.MapOpenApi().AllowAnonymous();
 app.MapScalarApiReference(options =>
 {
     options
@@ -205,6 +197,6 @@ app.MapScalarApiReference(options =>
         var isDefault = i == descriptions.Count - 1;
         options.AddDocument(description.GroupName, description.GroupName, isDefault: isDefault);
     }
-});
+}).AllowAnonymous();
 
 await app.RunAsync();
