@@ -10,7 +10,8 @@ var garnet = builder
 var postgres = builder
     .AddPostgres("postgres", password: adminPassword, port: 5432)
     .WithImageTag("alpine")
-    .WithDataVolume()
+    //.WithDataVolume()
+    .WithVolume("teleq-pg-data", "/var/lib/postgresql")
     .WithPgAdmin(x => x.WithImageTag("latest").WithHostPort(5050).WithLifetime(ContainerLifetime.Persistent))
     .WithLifetime(ContainerLifetime.Persistent);
 
