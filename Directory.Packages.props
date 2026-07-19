@@ -87,7 +87,7 @@
     <PackageVersion Include="Telegram.Bot" Version="22.10.2" />
   </ItemGroup>
   <ItemGroup Label="MassTransit">
-    <PackageVersion Include="MassTransit" Version="8.5.10" />
+    <PackageVersion Include="MassTransit" Version="9.1.2" />
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.5.10" />
   </ItemGroup>
   <ItemGroup Label="Keycloak">
