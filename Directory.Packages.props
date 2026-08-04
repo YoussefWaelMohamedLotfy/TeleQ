@@ -69,8 +69,8 @@
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.31.0.145097" />
   </ItemGroup>
   <ItemGroup Label="Marten">
-    <PackageVersion Include="Marten" Version="9.22.2" />
-    <PackageVersion Include="Marten.AspNetCore" Version="9.22.2" />
+    <PackageVersion Include="Marten" Version="9.22.3" />
+    <PackageVersion Include="Marten.AspNetCore" Version="9.22.3" />
     <PackageVersion Include="JasperFx.Events" Version="2.37.0" />
     <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.36.3" />
     <!-- Force CodeAnalysis to 5.x to satisfy EF design-time tools (NU1608 suppressed) -->
