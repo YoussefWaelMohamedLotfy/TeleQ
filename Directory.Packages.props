@@ -72,7 +72,7 @@
     <PackageVersion Include="Marten" Version="9.22.5" />
     <PackageVersion Include="Marten.AspNetCore" Version="9.22.5" />
     <PackageVersion Include="JasperFx.Events" Version="2.45.0" />
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.45.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.46.0" />
     <!-- Force CodeAnalysis to 5.x to satisfy EF design-time tools (NU1608 suppressed) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.11.0" />
