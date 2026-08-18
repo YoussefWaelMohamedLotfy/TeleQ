@@ -69,7 +69,7 @@
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.32.0.713" />
   </ItemGroup>
   <ItemGroup Label="Marten">
-    <PackageVersion Include="Marten" Version="9.24.0" />
+    <PackageVersion Include="Marten" Version="9.27.0" />
     <PackageVersion Include="Marten.AspNetCore" Version="9.24.0" />
     <PackageVersion Include="JasperFx.Events" Version="2.48.0" />
     <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.47.0" />
