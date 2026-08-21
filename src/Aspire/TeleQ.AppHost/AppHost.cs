@@ -11,24 +11,13 @@ var postgres = builder
     .AddPostgres("postgres", password: adminPassword, port: 5432)
     .WithImageTag("alpine")
     //.WithDataVolume()
-    .WithVolume("teleq-pg-data", "/var/lib/postgresql")
-    .WithPgAdmin(x => x.WithImageTag("latest").WithHostPort(5050).WithLifetime(ContainerLifetime.Persistent))
+    .WithVolume("teleq-pg-data", "/var/lib/postgresql")    
     .WithLifetime(ContainerLifetime.Persistent);
+
+postgres.WithPgAdmin(x => x.WithImageTag("latest").WithHostPort(5050).WithParentRelationship(postgres).WithLifetime(ContainerLifetime.Persistent));
 
 var teleqDb = postgres.AddDatabase("TeleQ-Db");
 var KeycloakDb = postgres.AddDatabase("Keycloak-Db");
-
-builder
-    .AddContainer("postgres-mcp", "crystaldba/postgres-mcp")
-    .WithHttpEndpoint(port: 8083, targetPort: 8000)
-    .WithEnvironment("DATABASE_URI", teleqDb.Resource.UriExpression)
-    .WithArgs("--access-mode=unrestricted")
-    .WithArgs("--transport=sse")
-    .WaitFor(teleqDb)
-    .WithParentRelationship(postgres)
-    .WithIconName("WindowDevTools")
-    .WithLifetime(ContainerLifetime.Persistent)
-    .ExcludeFromManifest();
 
 var keycloak = builder
     .AddKeycloak("keycloak", 8081, adminPassword: adminPassword)
