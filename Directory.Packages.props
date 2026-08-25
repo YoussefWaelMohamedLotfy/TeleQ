@@ -15,7 +15,7 @@
     <PackageVersion Include="BootstrapBlazor" Version="10.9.2" />
     <PackageVersion Include="BootstrapBlazor.BootstrapIcon" Version="10.0.0" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" Version="13.5.0-beta.730" />
-    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ngrok" Version="13.5.0-beta.730" />
+    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ngrok" Version="13.5.0" />
   </ItemGroup>
   <ItemGroup Label="Entity Framework Core">
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
