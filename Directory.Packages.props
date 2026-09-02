@@ -12,7 +12,7 @@
     <PackageVersion Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.3" />
     <PackageVersion Include="Aspire.RabbitMQ.Client" Version="13.3.5" />
     <PackageVersion Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.5.3" />
-    <PackageVersion Include="BootstrapBlazor" Version="10.9.2" />
+    <PackageVersion Include="BootstrapBlazor" Version="10.10.0" />
     <PackageVersion Include="BootstrapBlazor.BootstrapIcon" Version="10.0.0" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" Version="13.5.0-preview.1.260825-0345" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ngrok" Version="13.5.0" />
@@ -45,7 +45,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.8" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.8" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.6.2" />
-    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.3.3" />
+    <PackageVersion Include="Microsoft.Testing.Platform.MSBuild" Version="2.4.0" />
     <PackageVersion Include="TUnit" Version="1.65.68" />
     <PackageVersion Include="TUnit.AspNetCore" Version="1.45.29" />
     <PackageVersion Include="TUnit.Playwright" Version="1.45.29" />
@@ -65,14 +65,14 @@
     <PackageVersion Include="Mediator.Abstractions" Version="3.0.2" />
     <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.2" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.14.14" />
-    <PackageVersion Include="Scalar.AspNetCore.Microsoft" Version="2.17.1" />
+    <PackageVersion Include="Scalar.AspNetCore.Microsoft" Version="2.17.2" />
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.33.0.1635" />
   </ItemGroup>
   <ItemGroup Label="Marten">
-    <PackageVersion Include="Marten" Version="9.30.0" />
-    <PackageVersion Include="Marten.AspNetCore" Version="9.30.0" />
-    <PackageVersion Include="JasperFx.Events" Version="2.57.0" />
-    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.57.0" />
+    <PackageVersion Include="Marten" Version="9.31.2" />
+    <PackageVersion Include="Marten.AspNetCore" Version="9.31.2" />
+    <PackageVersion Include="JasperFx.Events" Version="2.61.0" />
+    <PackageVersion Include="JasperFx.Events.SourceGenerator" Version="2.59.0" />
     <!-- Force CodeAnalysis to 5.x to satisfy EF design-time tools (NU1608 suppressed) -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.11.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.11.0" />
