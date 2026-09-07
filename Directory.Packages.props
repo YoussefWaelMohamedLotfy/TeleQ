@@ -12,7 +12,7 @@
     <PackageVersion Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.5.3" />
     <PackageVersion Include="Aspire.RabbitMQ.Client" Version="13.3.5" />
     <PackageVersion Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.5.3" />
-    <PackageVersion Include="BootstrapBlazor" Version="10.10.0" />
+    <PackageVersion Include="BootstrapBlazor" Version="10.10.1" />
     <PackageVersion Include="BootstrapBlazor.BootstrapIcon" Version="10.0.0" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" Version="13.5.0-preview.1.260825-0345" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ngrok" Version="13.5.0" />
