@@ -14,7 +14,7 @@
     <PackageVersion Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.5.4" />
     <PackageVersion Include="BootstrapBlazor" Version="10.10.2" />
     <PackageVersion Include="BootstrapBlazor.BootstrapIcon" Version="10.0.0" />
-    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" Version="13.5.1-beta.757" />
+    <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" Version="13.5.1-beta.763" />
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.Ngrok" Version="13.5.0" />
   </ItemGroup>
   <ItemGroup Label="Entity Framework Core">
