@@ -14,6 +14,7 @@
     <PackageReference Include="Aspire.Hosting.RabbitMQ" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ngrok" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
   </ItemGroup>
 
   <ItemGroup>
