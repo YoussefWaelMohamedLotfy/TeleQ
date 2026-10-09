@@ -84,7 +84,7 @@
     <PackageVersion Include="ZiggyCreatures.FusionCache.OpenTelemetry" Version="2.9.0" />
   </ItemGroup>
   <ItemGroup Label="Telegram">
-    <PackageVersion Include="Telegram.Bot" Version="22.10.3.2" />
+    <PackageVersion Include="Telegram.Bot" Version="22.10.3.3" />
   </ItemGroup>
   <ItemGroup Label="MassTransit">
     <PackageVersion Include="MassTransit" Version="8.5.11" />
