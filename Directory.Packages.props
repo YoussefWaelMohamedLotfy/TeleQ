@@ -65,7 +65,7 @@
     <PackageVersion Include="Mediator.Abstractions" Version="3.0.2" />
     <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.2" />
     <PackageVersion Include="Scalar.AspNetCore" Version="2.14.14" />
-    <PackageVersion Include="Scalar.AspNetCore.Microsoft" Version="2.18.2" />
+    <PackageVersion Include="Scalar.AspNetCore.Microsoft" Version="2.18.3" />
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" />
   </ItemGroup>
   <ItemGroup Label="Marten">
