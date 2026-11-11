@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <UserSecretsId>dotnet-TeleQ.Messaging.Worker-18db5202-d381-48cd-92e5-7ec99e521b8a</UserSecretsId>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
 
   <ItemGroup>
