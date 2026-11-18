@@ -33,7 +33,7 @@ var rabbitmq = builder.AddRabbitMQ("rabbitmq", password: adminPassword, port: 56
     .WithLifetime(ContainerLifetime.Persistent);
 
 var api = builder
-    .AddProject<Projects.TeleQ_Api>("api")
+    .AddDotnetProject("api", "../../Backend/TeleQ.Api/TeleQ.Api.csproj")
     .WithReference(teleqDb)
     .WithReference(keycloak)
     .WithReference(garnet)
@@ -45,14 +45,14 @@ var api = builder
 
 var apiMigrations = api.AddEFMigrations("api-migrations", "TeleQ.Api.Data.AppDbContext")
     .WaitFor(teleqDb)
-    .WithMigrationsProject<Projects.TeleQ_Api>()
+    .WithMigrationsProject("../../Backend/TeleQ.Api/TeleQ.Api.csproj")
     .RunDatabaseUpdateOnStart();
 
 api.WaitForCompletion(apiMigrations)
     .WithChildRelationship(apiMigrations);
 
 var blazor = builder
-    .AddProject<Projects.TeleQ_Web>("blazor")
+    .AddDotnetProject("blazor", "../../Apps/TeleQ.Web/TeleQ.Web.csproj")
     .WithReference(api)
     .WithReference(keycloak)
     .WithReference(garnet)
@@ -63,7 +63,7 @@ var ngrokAuthToken = builder.AddParameter("ngrok-auth-token", true);
 
 
 
-var messagingWorker = builder.AddProject<Projects.TeleQ_Messaging_Worker>("teleq-messaging-worker")
+var messagingWorker = builder.AddDotnetProject("teleq-messaging-worker", "../../Backend/TeleQ.Messaging.Worker/TeleQ.Messaging.Worker.csproj")
     .WithReference(teleqDb)
     .WithReference(garnet)
     .WithReference(rabbitmq)

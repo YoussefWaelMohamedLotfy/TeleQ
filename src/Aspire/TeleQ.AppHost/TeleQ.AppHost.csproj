@@ -1,24 +1,19 @@
-﻿<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <UserSecretsId>3f8a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c</UserSecretsId>
+	<OutputType>Exe</OutputType>
+	<UserSecretsId>3f8a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c</UserSecretsId>
 	<AspireUseCliBundle>true</AspireUseCliBundle>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.AppHost" />
-    <PackageReference Include="Aspire.Hosting.EntityFrameworkCore" />
-    <PackageReference Include="Aspire.Hosting.Garnet" />
-    <PackageReference Include="Aspire.Hosting.Keycloak" />
-    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
-    <PackageReference Include="Aspire.Hosting.RabbitMQ" />
-    <PackageReference Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" />
-    <PackageReference Include="CommunityToolkit.Aspire.Hosting.Ngrok" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\Backend\TeleQ.Api\TeleQ.Api.csproj" />
-    <ProjectReference Include="..\..\Apps\TeleQ.Web\TeleQ.Web.csproj" />
-    <ProjectReference Include="..\..\Backend\TeleQ.Messaging.Worker\TeleQ.Messaging.Worker.csproj" />
+	<PackageReference Include="Aspire.Hosting.AppHost" />
+	<PackageReference Include="Aspire.Hosting.Dotnet" />
+	<PackageReference Include="Aspire.Hosting.EntityFrameworkCore" />
+	<PackageReference Include="Aspire.Hosting.Garnet" />
+	<PackageReference Include="Aspire.Hosting.Keycloak" />
+	<PackageReference Include="Aspire.Hosting.PostgreSQL" />
+	<PackageReference Include="Aspire.Hosting.RabbitMQ" />
+	<PackageReference Include="CommunityToolkit.Aspire.Hosting.Keycloak.Extensions" />
+	<PackageReference Include="CommunityToolkit.Aspire.Hosting.Ngrok" />
   </ItemGroup>
 </Project>

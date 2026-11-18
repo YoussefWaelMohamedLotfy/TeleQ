@@ -1,5 +1,8 @@
 {
-    "appHost": {
-        "path": "src\\Aspire\\TeleQ.AppHost\\TeleQ.AppHost.csproj"
-    }
+  "appHost": {
+    "path": "src\\Aspire\\TeleQ.AppHost\\TeleQ.AppHost.csproj"
+  },
+  "sdk": {
+    "version": "17.0.0"
+  }
 }
